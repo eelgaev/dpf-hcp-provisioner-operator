@@ -59,7 +59,7 @@ func TestDetectDPUMode(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name: "empty mode defaults to dpu",
+			name: "empty mode returns error",
 			dpuFlavor: &dpuprovisioningv1alpha1.DPUFlavor{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-flavor-empty",
@@ -69,8 +69,8 @@ func TestDetectDPUMode(t *testing.T) {
 					DpuMode: "",
 				},
 			},
-			expectedMode:  dpuprovisioningv1alpha1.DpuMode,
-			expectedError: false,
+			expectedMode:  "",
+			expectedError: true,
 		},
 		{
 			name: "nic mode returns error",

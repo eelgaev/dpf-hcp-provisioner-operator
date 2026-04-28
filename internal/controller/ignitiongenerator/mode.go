@@ -48,10 +48,7 @@ func DetectDPUMode(dpuFlavor *dpuprovisioningv1alpha1.DPUFlavor) (dpuprovisionin
 	case dpuprovisioningv1alpha1.NicMode:
 		return "", fmt.Errorf("NIC mode is not supported")
 	case "":
-		// Should not happen if webhook is working, but default gracefully.
-		// Following the same logic as the webhook: default to dpu mode.
-		// See: github.com/nvidia/doca-platform/internal/provisioning/webhooks/dpuflavor_webhook.go
-		return dpuprovisioningv1alpha1.DpuMode, nil
+		return "", fmt.Errorf("DPU mode is empty: DPF operator webhook should have set a default value")
 	default:
 		return "", fmt.Errorf("invalid DPU mode: %s (expected one of: zero-trust, dpu)", mode)
 	}
