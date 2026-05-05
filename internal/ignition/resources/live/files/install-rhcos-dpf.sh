@@ -145,16 +145,17 @@ wait_for_host_reboot_if_required() {
         if [ "$sriov_en" != "True(1)" ] || [ "$num_of_vfs" = "0" ]; then
             log "INFO: Host reboot required, signaling host agent"
             dpu_agent update-host-reboot
-            log "INFO: Waiting for host reboot..."
+            shutdown -h now
             sleep infinity
         fi
     done
     log "INFO: No host reboot required."
 }
 
-call_configure_host_vfs() {
-    dpu_agent configure-host-vfs
-}
+# call_configure_host_vfs() {
+#     log "INFO: Calling configure-host-vfs"
+#     dpu_agent configure-host-vfs
+# }
 
 validate_identity
 validate_ignition
@@ -168,9 +169,10 @@ sync
 
 log "INFO: Installation complete."
 
-wait_for_host_reboot_if_required
+dpu_agent update-time
+dpu_agent update-nvconfig-applied
 
-call_configure_host_vfs
+wait_for_host_reboot_if_required
 
 log "INFO: Waiting for 10 seconds before rebooting"
 sleep 10
