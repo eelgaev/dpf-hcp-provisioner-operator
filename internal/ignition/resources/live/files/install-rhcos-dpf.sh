@@ -11,9 +11,14 @@ log() {
     /usr/local/bin/bflog.sh "$msg"
 }
 
+error() {
+    log "ERROR: $1 - $2"
+    dpu_agent send-error "$1" "$2"
+}
+
 validate_identity() {
     if [ -z "$DPUName" ] || [ -z "$DPUNamespace" ] || [ -z "$DPUUID" ]; then
-        log "ERROR: Missing identity env vars (DPUName, DPUNamespace, DPUUID)"
+        error "Ignition" "Missing identity env vars (DPUName, DPUNamespace, DPUUID)"
         exit 1
     fi
     log "INFO: DPU identity: $DPUName ($DPUUID) in $DPUNamespace"
@@ -23,11 +28,11 @@ validate_ignition() {
     if [[ -f "$IGNITION_FILE" ]]; then
         log "INFO: Ignition file found at $IGNITION_FILE"
         if ! jq -e . "$IGNITION_FILE" >/dev/null 2>&1; then
-            log "ERROR: Ignition file is not a valid JSON."
+            error "Ignition" "Ignition file is not a valid JSON."
             exit 1
         fi
     else
-        log "ERROR: Ignition file is missing, skipping installation."
+        error "Ignition" "Ignition file is missing, skipping installation."
         exit 1
     fi
 }
@@ -35,7 +40,7 @@ validate_ignition() {
 update_ignition() {
     /usr/local/bin/update_ignition.py "$IGNITION_FILE"
     if [ $? -ne 0 ]; then
-        log "ERROR: Failed to update ignition file."
+        error "Ignition" "Failed to update ignition file."
         exit 1
     fi
 }
@@ -75,7 +80,7 @@ dpu_agent() {
     local TIMEOUT=300 # 5 minutes
     local START=$(date +%s)
 
-    until /usr/local/bin/dpuagent-client.py "$1"; do
+    until /usr/local/bin/dpuagent-client.py "$@"; do
         local ELAPSED=$(($(date +%s) - START))
         if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
             log "ERROR: Timed out contacting dpu-agent on call $1"
@@ -98,13 +103,13 @@ set_nvconfig() {
     for dev in ${pcie_dev_list}; do
         log "INFO: Saving NVConfig query to /tmp/nvconfig-${dev}.json"
         if ! mstconfig -d ${dev} -j /tmp/nvconfig-${dev}.json query; then
-            log "ERROR: Failed to query NVConfig on dev ${dev}"
+            error "NVConfig" "Failed to query NVConfig on dev ${dev}"
             exit 1
         fi
 
         log "INFO: Setting NVConfig on dev ${dev}: ${nvconfig_params}"
         if ! mstconfig -d ${dev} -y set ${nvconfig_params}; then
-            log "ERROR: Failed to set NVConfig on dev ${dev}"
+            error "NVConfig" "Failed to set NVConfig on dev ${dev}"
             exit 1
         fi
     done
@@ -130,7 +135,7 @@ install_rhcos() {
         --offline
 
     if [ $? -ne 0 ]; then
-        log "ERROR: Failed to install Red Hat CoreOS."
+        error "RHCOSInstallation" "Failed to install Red Hat CoreOS."
         exit 1
     fi
 }
