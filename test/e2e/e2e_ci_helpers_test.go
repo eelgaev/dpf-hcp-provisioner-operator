@@ -260,7 +260,7 @@ func createDPUDeploymentStub(ns, name, flavorName string) {
 				Flavor: flavorName,
 			},
 			Services: map[string]dpuservicev1.DPUDeploymentServiceConfiguration{},
-			ServiceChains: dpuservicev1.ServiceChains{
+			ServiceChains: &dpuservicev1.ServiceChains{
 				UpgradePolicy: dpuservicev1.UpgradePolicy{},
 				Switches: []dpuservicev1.DPUDeploymentSwitch{
 					{
@@ -305,16 +305,15 @@ func createDPUFlavorStub(ns, name string) {
 func createDPFOperatorConfig(ns string) {
 	ctx := context.Background()
 	mtu := 1500
-	disable := true
+	bfbPVCName := "e2e-bfb-pvc"
 	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "dpfoperatorconfig",
 			Namespace: ns,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
-			ProvisioningController: operatorv1.ProvisioningControllerConfiguration{
-				BFBPersistentVolumeClaimName: "e2e-bfb-pvc",
-				Disable:                      &disable,
+			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+				BFBPersistentVolumeClaimName: &bfbPVCName,
 			},
 			Networking: &operatorv1.Networking{
 				ControlPlaneMTU: &mtu,
