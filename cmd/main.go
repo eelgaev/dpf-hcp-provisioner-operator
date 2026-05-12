@@ -50,6 +50,7 @@ import (
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/finalizer"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/hostedcluster"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/ignitiongenerator"
+	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/imagecache"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/kubeconfiginjection"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/metallb"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/secrets"
@@ -273,6 +274,9 @@ func main() {
 	// Initialize Status Syncer for HostedCluster status mirroring
 	statusSyncer := hostedcluster.NewStatusSyncer(client)
 
+	// Initialize Image Cache Manager for internal registry caching
+	imageCacheManager := imagecache.NewImageCache(client, provisionerRecorder)
+
 	// Initialize Ignition Generator for DPF provisioning
 	ignitionGenerator := ignitiongenerator.NewIgnitionGenerator(client, scheme, provisionerRecorder)
 
@@ -292,6 +296,7 @@ func main() {
 		StatusSyncer:         statusSyncer,
 		KubeconfigInjector:   kubeconfigInjector,
 		IgnitionGenerator:    ignitionGenerator,
+		ImageCacheManager:    imageCacheManager,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPFHCPProvisioner")
 		os.Exit(1)
