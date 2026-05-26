@@ -150,6 +150,12 @@ spec:
             value: $(tasks.prefetch-dependencies.results.SOURCE_ARTIFACT)
           - name: CHART_CONTEXT
             value: $(params.chart-context)
+          # Use a low semver so helm never resolves PR charts as "latest".
+          # The build task always publishes a semver tag via `helm push`;
+          # without this, PR builds get versions like 0.1.138 that shadow
+          # real releases from the push pipeline.
+          - name: CHART_VERSION
+            value: 0.0.0-pr
         runAfter:
           - prefetch-dependencies
         taskRef:
