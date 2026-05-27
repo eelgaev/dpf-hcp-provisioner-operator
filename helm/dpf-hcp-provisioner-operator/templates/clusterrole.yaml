@@ -5,201 +5,165 @@ metadata:
   labels:
     {{- include "dpf-hcp-provisioner-operator.labels" . | nindent 4 }}
 rules:
-# Permissions for DPFHCPProvisionerConfig (operator configuration CR)
 - apiGroups:
-  - provisioning.dpu.hcp.io
+    - ""
   resources:
-  - dpfhcpprovisionerconfigs
+    - configmaps
   verbs:
-  - get
-  - list
-  - watch
-
-# Permissions for DPFHCPProvisioner custom resources
+    - create
+    - get
+    - list
+    - patch
+    - update
+    - watch
 - apiGroups:
-  - provisioning.dpu.hcp.io
+    - ""
   resources:
-  - dpfhcpprovisioners
+    - events
   verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
+    - create
+    - patch
 - apiGroups:
-  - provisioning.dpu.hcp.io
+    - ""
   resources:
-  - dpfhcpprovisioners/finalizers
+    - namespaces
   verbs:
-  - update
+    - create
+    - get
+    - list
+    - watch
 - apiGroups:
-  - provisioning.dpu.hcp.io
+    - ""
   resources:
-  - dpfhcpprovisioners/status
+    - nodes
   verbs:
-  - get
-  - patch
-  - update
-
-# Leader election permissions (required for HA)
+    - get
+    - list
+    - watch
 - apiGroups:
-  - coordination.k8s.io
+    - ""
   resources:
-  - leases
+    - secrets
   verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
-
-# Event creation permissions (for notifications)
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
 - apiGroups:
-  - ""
+    - coordination.k8s.io
   resources:
-  - events
+    - leases
   verbs:
-  - create
-  - patch
-
-# ConfigMap permissions (for ignition ConfigMap creation)
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
 - apiGroups:
-  - ""
+    - hypershift.openshift.io
   resources:
-  - configmaps
+    - hostedclusters
+    - nodepools
   verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-
-# Secret permissions (read user secrets, create/delete secrets in clusters namespace)
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
 - apiGroups:
-  - ""
+    - hypershift.openshift.io
   resources:
-  - secrets
+    - hostedclusters/status
+    - nodepools/status
   verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
-
-# Namespace permissions (create clusters namespace at startup)
+    - get
 - apiGroups:
-  - ""
+    - metallb.io
   resources:
-  - namespaces
+    - ipaddresspools
+    - l2advertisements
   verbs:
-  - get
-  - list
-  - watch
-  - create
-
-# Node read permissions (for NodePort mode address detection)
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
 - apiGroups:
-  - ""
+    - operator.dpu.nvidia.com
   resources:
-  - nodes
+    - dpfoperatorconfigs
   verbs:
-  - get
-  - list
-  - watch
-
-# DPUCluster permissions (for reference validation and kubeconfig injection)
+    - get
+    - list
+    - patch
+    - watch
 - apiGroups:
-  - provisioning.dpu.nvidia.com
+    - provisioning.dpu.hcp.io
   resources:
-  - dpuclusters
+    - dpfhcpprovisionerconfigs
   verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-
-# DPU permissions (for CSR validation against DPU objects)
+    - get
+    - list
+    - watch
 - apiGroups:
-  - provisioning.dpu.nvidia.com
+    - provisioning.dpu.hcp.io
   resources:
-  - dpus
+    - dpfhcpprovisioners
   verbs:
-  - get
-  - list
-  - watch
-
-# HyperShift HostedCluster and NodePool permissions
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
 - apiGroups:
-  - hypershift.openshift.io
+    - provisioning.dpu.hcp.io
   resources:
-  - hostedclusters
-  - nodepools
+    - dpfhcpprovisioners/finalizers
   verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
+    - update
 - apiGroups:
-  - hypershift.openshift.io
+    - provisioning.dpu.hcp.io
   resources:
-  - hostedclusters/status
-  - nodepools/status
+    - dpfhcpprovisioners/status
   verbs:
-  - get
-
-# DPUDeployment permissions (for ignition generation - flavor retrieval)
+    - get
+    - patch
+    - update
 - apiGroups:
-  - svc.dpu.nvidia.com
+    - provisioning.dpu.nvidia.com
   resources:
-  - dpudeployments
+    - dpuclusters
   verbs:
-  - get
-  - list
-  - watch
-
-# DPUFlavor permissions (for ignition generation - flavor configuration)
+    - get
+    - list
+    - patch
+    - update
+    - watch
 - apiGroups:
-  - provisioning.dpu.nvidia.com
+    - provisioning.dpu.nvidia.com
   resources:
-  - dpuflavors
+    - dpuflavors
+    - dpus
   verbs:
-  - get
-  - list
-  - watch
-
-# DPFOperatorConfig permissions (for ignition generation - ConfigMap reference update)
+    - get
+    - list
+    - watch
 - apiGroups:
-  - operator.dpu.nvidia.com
+    - svc.dpu.nvidia.com
   resources:
-  - dpfoperatorconfigs
+    - dpudeployments
   verbs:
-  - get
-  - list
-  - watch
-  - patch
-
-# MetalLB permissions (for LoadBalancer service exposure)
-- apiGroups:
-  - metallb.io
-  resources:
-  - ipaddresspools
-  - l2advertisements
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
+    - get
+    - list
+    - watch
