@@ -1,7 +1,7 @@
 [Unit]
 Description=bfup signal
 After=devlink-activate.service
-# Don't start if this file exists:
+# Don't start if this file exists, OS layer has bfup.service preinstalled
 ConditionPathExists=!/etc/mlnx-release
 
 [Service]

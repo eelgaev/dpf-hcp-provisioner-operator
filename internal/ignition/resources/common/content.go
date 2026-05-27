@@ -9,6 +9,9 @@ import (
 //go:embed files/*
 var filesFS embed.FS
 
+//go:embed systemd/*
+var systemdFS embed.FS
+
 func NewProvider() *content.EmbeddedProvider {
 	f := func(name string) []byte { return content.EmbedFile(filesFS, "files/"+name) }
 
@@ -49,6 +52,12 @@ func NewProvider() *content.EmbeddedProvider {
 				Mode:          0755,
 				ContentSource: f("bfupsignal.sh"),
 			},
+			{
+				Path:          "/usr/local/bin/setup-vfs-devlink.sh",
+				Mode:          0755,
+				ContentSource: f("setup-vfs-devlink.sh"),
+			},
 		},
+		SystemdFS: &systemdFS,
 	}
 }
