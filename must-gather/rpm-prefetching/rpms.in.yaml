@@ -1,0 +1,10 @@
+packages:
+  - tar
+  - rsync
+contentOrigin:
+  repofiles: ["./ubi-minimal.repo"]
+arches:
+  - aarch64
+  - x86_64
+  - ppc64le
+  - s390x

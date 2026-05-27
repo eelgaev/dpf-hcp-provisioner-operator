@@ -24,7 +24,13 @@ spec:
   - name: output-image
     value: quay.io/redhat-user-workloads/dpu-kit-for-nvidia-operator-tenant/must-gather:{{revision}}
   - name: dockerfile
-    value: hack/must-gather.Containerfile
+    value: must-gather/must-gather.Containerfile
+  - name: hermetic
+    value: "true"
+  - name: build-source-image
+    value: "true"
+  - name: prefetch-input
+    value: '[{"type": "rpm", "path": "must-gather/rpm-prefetching"}]'
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while maintaining trust after pipeline customization.
