@@ -9,6 +9,8 @@ ConditionPathExists=!/etc/mlnx-release
 EnvironmentFile=/etc/dpf/environment
 Type=oneshot
 ExecStart=/usr/local/bin/setup-vfs-devlink.sh create-vfs
+Restart=on-failure
+RestartSec=30
 
 [Install]
 WantedBy=multi-user.target
