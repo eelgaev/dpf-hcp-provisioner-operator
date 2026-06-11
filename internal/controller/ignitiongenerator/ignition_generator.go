@@ -243,7 +243,7 @@ func (ig *IgnitionGenerator) generateIgnition(ctx context.Context, cr *provision
 	log.V(1).Info("Building live ignition")
 	// We are adding DPU Flavor in JSON format for early setup tasks, such as nvconfig parameters setup.
 	// JSON is easier to parse with the tooling we have in Live RHCOS install media.
-	liveIgnition, err := ig.buildLiveIgnition(targetIgnition, hcpIgnitionBytes, dpuFlavor)
+	liveIgnition, err := ig.buildLiveIgnition(targetIgnition, hcpIgnitionBytes, dpuFlavor, IsZeroTrustMode(dpuMode))
 	if err != nil {
 		return fmt.Errorf("failed to build live ignition: %w", err)
 	}
@@ -465,7 +465,7 @@ func (ig *IgnitionGenerator) buildTargetIgnition(hcpIgnitionBytes []byte, dpuFla
 }
 
 // buildLiveIgnition builds the live ignition with embedded target ignition
-func (ig *IgnitionGenerator) buildLiveIgnition(targetIgnition *igntypes.Config, hcpIgnitionBytes []byte, dpuFlavor *dpuprovisioningv1alpha1.DPUFlavor) (*igntypes.Config, error) {
+func (ig *IgnitionGenerator) buildLiveIgnition(targetIgnition *igntypes.Config, hcpIgnitionBytes []byte, dpuFlavor *dpuprovisioningv1alpha1.DPUFlavor, zeroTrust bool) (*igntypes.Config, error) {
 	// Parse HCP to extract passwd
 	hcpIgnition := &igntypes.Config{}
 	if err := json.Unmarshal(hcpIgnitionBytes, hcpIgnition); err != nil {
@@ -481,7 +481,7 @@ func (ig *IgnitionGenerator) buildLiveIgnition(targetIgnition *igntypes.Config, 
 	}
 
 	// Add live content files and systemd units
-	liveProvider := live.NewProvider()
+	liveProvider := live.NewProvider(zeroTrust)
 	if err := igncontent.AddContent(liveIgnition, liveProvider); err != nil {
 		return nil, fmt.Errorf("failed to add live content: %w", err)
 	}
