@@ -452,6 +452,13 @@ func (ig *IgnitionGenerator) buildTargetIgnition(hcpIgnitionBytes []byte, dpuFla
 	// Add flavor OVS script
 	ignition.AddFlavorOVSScript(targetIgnition, &dpuFlavor.Spec)
 
+	// Merge DPUFlavor config files into the target ignition.
+	// This must run after all default files are added so that flavor files
+	// can override defaults at conflicting paths (e.g. /etc/mellanox/mlnx-bf.conf).
+	if err := ignition.MergeFlavorConfigFiles(targetIgnition, &dpuFlavor.Spec); err != nil {
+		return nil, fmt.Errorf("failed to merge flavor config files: %w", err)
+	}
+
 	// Add DPU flavor YAML
 	if err := ignition.AddDPUFlavorYAML(targetIgnition, dpuFlavor); err != nil {
 		return nil, fmt.Errorf("failed to add DPU flavor YAML: %w", err)
