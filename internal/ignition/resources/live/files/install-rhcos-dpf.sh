@@ -157,11 +157,12 @@ set_nvconfig() {
 
         local sriov_en=$(echo "$query_output" | grep SRIOV_EN | awk '{print $(NF-1)}')
         local current_vfs=$(echo "$query_output" | grep NUM_OF_VFS | awk '{print $(NF-1)}')
+        local pf_num_of_vf_valid=$(echo "$query_output" | grep PF_NUM_OF_VF_VALID | awk '{print $(NF-1)}')
 
-        if [ "$sriov_en" != "True(1)" ] || [ "$current_vfs" -le 0 ]; then
-            log "INFO: Setting NVConfig on dev ${dev}: SRIOV_EN=1 NUM_OF_VFS=1 (was SRIOV_EN=${sriov_en}, NUM_OF_VFS=${current_vfs})"
+        if [ "$sriov_en" != "True(1)" ] || [ "$current_vfs" -le 0 ] || [ "$pf_num_of_vf_valid" == "True(1)" ]; then
+            log "INFO: Caught Condition, Resetting DPU using NVConfig"
             run_mstconfig -d ${dev} -y reset
-            run_mstconfig -d ${dev} -y set SRIOV_EN=1 NUM_OF_VFS=1
+            run_mstconfig -d ${dev} -y set SRIOV_EN=1 NUM_OF_VFS=1 PF_NUM_OF_VF_VALID=0
             NVCONFIG_CHANGED=true
         else
             log "INFO: NVConfig on dev ${dev} already correct, skipping"
