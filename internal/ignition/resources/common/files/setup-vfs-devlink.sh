@@ -89,6 +89,9 @@ do_create_vfs() {
     exit 1
   fi
 
+  local fail_count=0
+  local last_rebind=0
+
   while true; do
     check_timeout
     LAST_ERROR=""
@@ -97,7 +100,7 @@ do_create_vfs() {
       LAST_ERROR="configure-host-vfs failed"
       echo "WARN: ${LAST_ERROR}"
     else
-      echo "INFO: configure-host-vfs succeeded"
+      echo "INFO: configure-host-vfs call succeeded"
     fi
 
     vf_count=$(devlink port show 2>/dev/null | grep -c "flavour pcivf")
@@ -110,6 +113,18 @@ do_create_vfs() {
       LAST_ERROR="no VFs found after configure-host-vfs"
       echo "WARN: ${LAST_ERROR}"
     fi
+
+    fail_count=$((fail_count + 1))
+    # After 3 failed VF creation attempts, rebind the host driver to recover from a bad mlx5_core driver state.
+    # Rate-limited to once per 480s (8min) because the rebind
+    # is blocking and the host needs time to stabilize after a driver reload.
+    if [ "$fail_count" -ge 3 ] && [ $(($(date +%s) - last_rebind)) -ge 480 ]; then
+      echo "WARN: $fail_count consecutive failures, requesting host driver rebind"
+      /usr/local/bin/dpuagent-client.py rebind-host-driver || echo "WARN: rebind-host-driver failed"
+      last_rebind=$(date +%s)
+      fail_count=0
+    fi
+
     sleep 30
   done
 
