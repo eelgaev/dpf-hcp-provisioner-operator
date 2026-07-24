@@ -37,6 +37,9 @@ def base_request(method, path, payload):
         body = e.read().decode()
         print(f"[{e.code}] {body}", file=sys.stderr)
         sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"Request to {path} failed: {e.reason}", file=sys.stderr)
+        sys.exit(1)
 
 
 def base_get(path, params):
@@ -48,6 +51,9 @@ def base_get(path, params):
     except urllib.error.HTTPError as e:
         body = e.read().decode()
         print(f"[{e.code}] {body}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"Request to {path} failed: {e.reason}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -132,6 +138,14 @@ def trigger_reboot(reboot_method):
         "dpuNamespace": DPU_NAMESPACE,
         "dpuUID": DPU_UID,
         "rebootMethod": reboot_method,
+    })
+
+
+def rebind_host_driver():
+    return base_request("POST", "/rebind-host-driver", {
+        "dpuName": DPU_NAME,
+        "dpuNamespace": DPU_NAMESPACE,
+        "dpuUID": DPU_UID,
     })
 
 
@@ -220,6 +234,8 @@ COMMANDS = {
     "update-host-reboot": update_host_reboot,
     "update-nvconfig-applied": update_nvconfig_applied,
     "trigger-reboot": lambda: trigger_reboot(sys.argv[2]),
+    "rebind-host-driver": rebind_host_driver,
+    
     "update-time": update_time,
     "send-error": lambda: send_error(sys.argv[2], sys.argv[3]),
     "update-pf-status": update_pf_status,
