@@ -73,8 +73,8 @@ func EnableMTU(ign *igntypes.Config, mtu uint16) {
 			if file.Contents.Source != nil && *file.Contents.Source != "" {
 				modified := strings.Replace(
 					*file.Contents.Source,
-					"[ethernet]\n",
-					fmt.Sprintf("[ethernet]\nmtu=%d\n", mtu),
+					url.QueryEscape("[ethernet]\n"),
+					url.QueryEscape(fmt.Sprintf("[ethernet]\nmtu=%d\n", mtu)),
 					1,
 				)
 				file.Contents.Source = &modified
