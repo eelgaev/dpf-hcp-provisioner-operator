@@ -306,7 +306,7 @@ var _ = Describe("EnableMTU", func() {
 
 	It("should modify existing pf0vf0.nmconnection to add MTU", func() {
 		ign := NewEmptyIgnition("3.4.0")
-		existingSource := "data:text/plain,[connection]\nid=pf0vf0\n\n[ethernet]\nwake-on-lan=0\n"
+		existingSource := "data:text/plain," + url.QueryEscape("[connection]\nid=pf0vf0\n\n[ethernet]\nwake-on-lan=0\n")
 		ign.Storage.Files = append(ign.Storage.Files, igntypes.File{
 			Node:          igntypes.Node{Path: "/etc/NetworkManager/system-connections/pf0vf0.nmconnection"},
 			FileEmbedded1: igntypes.FileEmbedded1{Contents: igntypes.Resource{Source: &existingSource}},
@@ -322,7 +322,10 @@ var _ = Describe("EnableMTU", func() {
 				break
 			}
 		}
-		Expect(pf0vf0Source).To(ContainSubstring("mtu=9000"))
+		decoded, err := url.QueryUnescape(strings.TrimPrefix(pf0vf0Source, "data:text/plain,"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(decoded).To(ContainSubstring("mtu=9000"))
+		Expect(decoded).To(ContainSubstring("[ethernet]\nmtu=9000"))
 	})
 })
 

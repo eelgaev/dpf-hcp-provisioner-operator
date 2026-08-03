@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"net/url"
 	"text/template"
 
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/ignition/content"
@@ -33,7 +34,7 @@ func NewProvider(zeroTrust bool) *content.EmbeddedProvider {
 			{
 				Path:          "/etc/NetworkManager/system-connections/pf0vf0.nmconnection",
 				Mode:          0600,
-				ContentSource: f("pf0vf0.nmconnection"),
+				ContentSource: "data:text/plain," + url.QueryEscape(string(f("pf0vf0.nmconnection"))),
 			},
 			{
 				Path:          "/etc/NetworkManager/system-connections/br-comm-ch.nmconnection",
