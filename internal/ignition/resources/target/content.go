@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
-	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/ignition/content"
 	"net/url"
 	"text/template"
+
+	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/ignition/content"
 )
 
 //go:embed files/*
