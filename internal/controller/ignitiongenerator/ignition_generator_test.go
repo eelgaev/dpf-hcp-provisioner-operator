@@ -607,6 +607,7 @@ var _ = Describe("buildTargetIgnition", func() {
 
 		for _, u := range result.Systemd.Units {
 			Expect(u.Name).NotTo(Equal("pf-monitor.service"))
+			Expect(u.Name).NotTo(Equal("report-machineosurl.service"))
 		}
 	})
 
@@ -624,6 +625,7 @@ var _ = Describe("buildTargetIgnition", func() {
 
 		for _, f := range result.Storage.Files {
 			Expect(f.Path).NotTo(Equal("/usr/local/bin/pf-monitor.sh"))
+			Expect(f.Path).NotTo(Equal("/usr/local/bin/report-machineosurl.py"))
 		}
 	})
 
@@ -639,18 +641,27 @@ var _ = Describe("buildTargetIgnition", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		var hasPfMonitorUnit, hasPfMonitorFile bool
+		var hasReportMachineOSURLUnit, hasReportMachineOSURLFile bool
 		for _, u := range result.Systemd.Units {
 			if u.Name == "pf-monitor.service" {
 				hasPfMonitorUnit = true
+			}
+			if u.Name == "report-machineosurl.service" {
+				hasReportMachineOSURLUnit = true
 			}
 		}
 		for _, f := range result.Storage.Files {
 			if f.Path == "/usr/local/bin/pf-monitor.sh" {
 				hasPfMonitorFile = true
 			}
+			if f.Path == "/usr/local/bin/report-machineosurl.py" {
+				hasReportMachineOSURLFile = true
+			}
 		}
 		Expect(hasPfMonitorUnit).To(BeTrue())
 		Expect(hasPfMonitorFile).To(BeTrue())
+		Expect(hasReportMachineOSURLUnit).To(BeTrue())
+		Expect(hasReportMachineOSURLFile).To(BeTrue())
 	})
 
 	It("should keep other systemd units in zero-trust mode", func() {

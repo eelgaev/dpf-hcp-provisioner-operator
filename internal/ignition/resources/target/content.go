@@ -97,6 +97,11 @@ func NewProvider(zeroTrust bool) *content.EmbeddedProvider {
 				ContentSource: f("tmfifo-agent-link.sh"),
 			},
 			{
+				Path:          "/usr/local/bin/report-machineosurl.py",
+				Mode:          0755,
+				ContentSource: f("report-machineosurl.py"),
+			},
+			{
 				Path:          "/etc/modules-load.d/br_netfilter.conf",
 				Mode:          0644,
 				ContentSource: "data:,br_netfilter"},
@@ -125,10 +130,11 @@ func NewProvider(zeroTrust bool) *content.EmbeddedProvider {
 	}
 
 	if zeroTrust {
-		p.SkipUnits = []string{"pf-monitor.service"}
+		p.SkipUnits = []string{"pf-monitor.service", "report-machineosurl.service"}
 		filtered := make([]content.FileDefinition, 0, len(p.Files))
 		for _, f := range p.Files {
 			if f.Path != "/usr/local/bin/pf-monitor.sh" &&
+				f.Path != "/usr/local/bin/report-machineosurl.py" &&
 				f.Path != "/etc/yum.repos.d/agentrepo.repo" {
 				filtered = append(filtered, f)
 			}
