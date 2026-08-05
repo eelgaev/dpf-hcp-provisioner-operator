@@ -1,0 +1,13 @@
+[Unit]
+Description=Report current MachineOSURL to host agent
+After=tmfifo-agent-link.service
+Requires=tmfifo-agent-link.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/dpf/environment
+ExecStart=/usr/local/bin/report-machineosurl.py
+
+[Install]
+WantedBy=multi-user.target
