@@ -117,6 +117,11 @@ func NewProvider() *content.EmbeddedProvider {
 				Mode:          0755,
 				ContentSource: f("pf-monitor.sh"),
 			},
+			{
+				Path:          "/usr/local/bin/report-machineosurl.py",
+				Mode:          0755,
+				ContentSource: f("report-machineosurl.py"),
+			},
 		},
 		SystemdFS: &systemdFS,
 	}
