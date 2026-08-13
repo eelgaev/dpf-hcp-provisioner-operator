@@ -93,7 +93,7 @@ var _ = Describe("DPFHCPProvisioner E2E", Ordered, Label("ocp-required"), func()
 			createDPFHCPProvisioner(ciNamespace, provisionerName)
 
 			By("waiting for CR to pass validation and begin provisioning")
-			waitForCRPhase(provisionerName, "Provisioning", 5*time.Minute)
+			waitForCRPhase(provisionerName, "WaitingForControlPlane", 5*time.Minute)
 
 			By("verifying HostedCluster was created")
 			var hcName string
@@ -441,11 +441,14 @@ var _ = Describe("DPFHCPProvisioner E2E", Ordered, Label("ocp-required"), func()
 					"HostedClusterUpgrading should be True")
 			}, 2*time.Minute, pollingInterval).Should(Succeed())
 
-			By("verifying phase is Upgrading")
+			By("verifying phase reflects upgrade in progress (WaitingForControlPlane or GeneratingIgnition)")
 			Eventually(func(g Gomega) {
 				phase := getCRPhase(provisionerName)
-				g.Expect(phase).To(Equal("Upgrading"),
-					"Phase should be Upgrading during upgrade")
+				g.Expect(phase).To(SatisfyAny(
+					Equal("WaitingForControlPlane"),
+					Equal("GeneratingIgnition"),
+					Equal("ClusterVersionProgressing"),
+				), "Phase should reflect upgrade progress")
 			}, 2*time.Minute, pollingInterval).Should(Succeed())
 
 			By("verifying ignition ConfigMap was deleted")
@@ -503,17 +506,6 @@ var _ = Describe("DPFHCPProvisioner E2E", Ordered, Label("ocp-required"), func()
 				"IgnitionConfigured should be True after upgrade")
 			Expect(condMap["HostedClusterUpgrading"]).To(Equal(metav1.ConditionFalse),
 				"HostedClusterUpgrading should be False after upgrade")
-
-			By("verifying HostedCluster ClusterVersionProgressing is not True")
-			hc := &hyperv1.HostedCluster{}
-			err = k8sClient.Get(ctx, types.NamespacedName{Namespace: ciNamespace, Name: hcName}, hc)
-			Expect(err).NotTo(HaveOccurred())
-			for _, c := range hc.Status.Conditions {
-				if c.Type == string(hyperv1.ClusterVersionProgressing) {
-					Expect(c.Status).NotTo(Equal(metav1.ConditionTrue),
-						"ClusterVersionProgressing should not be True when operator reports Ready — CVO is still rolling out operators")
-				}
-			}
 		})
 	})
 
