@@ -454,10 +454,10 @@ var _ = Describe("DPUFlavor Watch", func() {
 			r := &DPFHCPProvisionerReconciler{
 				Recorder: record.NewFakeRecorder(10),
 			}
-			r.updatePhaseFromConditions(provisioner)
+			r.updatePhaseFromConditions(context.Background(), provisioner)
 
 			Expect(provisioner.Status.Phase).NotTo(Equal(provisioningv1alpha1.PhaseFailed))
-			Expect(provisioner.Status.Phase).To(Equal(provisioningv1alpha1.PhaseIgnitionGenerating))
+			Expect(provisioner.Status.Phase).To(Equal(provisioningv1alpha1.PhaseGeneratingIgnition))
 		})
 	})
 })
