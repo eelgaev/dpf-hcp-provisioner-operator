@@ -192,33 +192,18 @@ type DPFHCPProvisionerSpec struct {
 }
 
 // DPFHCPProvisionerPhase represents the lifecycle phase of the DPFHCPProvisioner
-// +kubebuilder:validation:Enum=Pending;Provisioning;Upgrading;IgnitionGenerating;Ready;Failed;Error;Deleting
+// +kubebuilder:validation:Enum=Pending;WaitingForControlPlane;GeneratingIgnition;ClusterVersionProgressing;Ready;Failed;Error;Deleting
 type DPFHCPProvisionerPhase string
 
 const (
-	// PhasePending indicates initial state, validation in progress
-	PhasePending DPFHCPProvisionerPhase = "Pending"
-
-	// PhaseProvisioning indicates HostedCluster and related resources are being created
-	PhaseProvisioning DPFHCPProvisionerPhase = "Provisioning"
-
-	// PhaseUpgrading indicates a HostedCluster release image upgrade is in progress
-	PhaseUpgrading DPFHCPProvisionerPhase = "Upgrading"
-
-	// PhaseIgnitionGenerating indicates ignition generation is in progress
-	PhaseIgnitionGenerating DPFHCPProvisionerPhase = "IgnitionGenerating"
-
-	// PhaseReady indicates HostedCluster is operational, kubeconfig injected, CSR auto-approval active
-	PhaseReady DPFHCPProvisionerPhase = "Ready"
-
-	// PhaseFailed indicates permanent failure requiring user intervention (validation or ignition errors)
-	PhaseFailed DPFHCPProvisionerPhase = "Failed"
-
-	// PhaseError indicates the HostedCluster is in an error state (blocked or degraded)
-	PhaseError DPFHCPProvisionerPhase = "Error"
-
-	// PhaseDeleting indicates finalizer cleanup in progress
-	PhaseDeleting DPFHCPProvisionerPhase = "Deleting"
+	PhasePending                   DPFHCPProvisionerPhase = "Pending"
+	PhaseWaitingForControlPlane    DPFHCPProvisionerPhase = "WaitingForControlPlane"
+	PhaseGeneratingIgnition        DPFHCPProvisionerPhase = "GeneratingIgnition"
+	PhaseClusterVersionProgressing DPFHCPProvisionerPhase = "ClusterVersionProgressing"
+	PhaseReady                     DPFHCPProvisionerPhase = "Ready"
+	PhaseFailed                    DPFHCPProvisionerPhase = "Failed"
+	PhaseError                     DPFHCPProvisionerPhase = "Error"
+	PhaseDeleting                  DPFHCPProvisionerPhase = "Deleting"
 )
 
 // Condition types for DPFHCPProvisioner.
@@ -362,6 +347,12 @@ const (
 	// ReasonDependencyDeleted indicates a required dependency (DPUDeployment or DPUFlavor) was deleted.
 	// The ignition ConfigMap is removed and will be regenerated once the dependency is recreated.
 	ReasonDependencyDeleted string = "DependencyDeleted"
+
+	// ReasonReleaseImageUpdated indicates ignition was invalidated because the OCP release image changed.
+	ReasonReleaseImageUpdated string = "ReleaseImageUpdated"
+
+	// ReasonControlPlaneProgressing indicates the control plane is still rolling out the target version.
+	ReasonControlPlaneProgressing string = "ControlPlaneProgressing"
 )
 
 // DPFHCPProvisionerStatus defines the observed state of DPFHCPProvisioner
