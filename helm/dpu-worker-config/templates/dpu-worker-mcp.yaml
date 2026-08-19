@@ -1,0 +1,22 @@
+{{- $infra := lookup "config.openshift.io/v1" "Infrastructure" "" "cluster" }}
+{{- if not (and $infra (eq (dig "status" "controlPlaneTopology" "" $infra) "SingleReplica")) }}
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfigPool
+metadata:
+  name: worker-dpu
+  labels:
+    {{- include "dpu-worker-config.labels" . | nindent 4 }}
+spec:
+  machineConfigSelector:
+    matchExpressions:
+      - key: machineconfiguration.openshift.io/role
+        operator: In
+        values:
+          - worker
+          - worker-dpu
+  maxUnavailable: 1
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker-dpu: ""
+  paused: false
+{{- end }}
