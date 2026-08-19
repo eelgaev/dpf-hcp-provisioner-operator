@@ -86,7 +86,7 @@ func setDPFOperatorConfigVersion(version string) {
 					BFBPersistentVolumeClaimName: &bfbPVCName,
 				},
 				Networking: &operatorv1.Networking{
-					ControlPlaneMTU: &mtu,
+					HighSpeedMTU: &mtu,
 				},
 			},
 		}

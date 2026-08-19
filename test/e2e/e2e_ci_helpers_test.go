@@ -369,7 +369,7 @@ func createDPFOperatorConfig() {
 				BFBPersistentVolumeClaimName: &bfbPVCName,
 			},
 			Networking: &operatorv1.Networking{
-				ControlPlaneMTU: &mtu,
+				HighSpeedMTU: &mtu,
 			},
 		},
 	}
