@@ -241,7 +241,7 @@ var _ = Describe("generateIgnition integration", func() {
 			},
 			Spec: operatorv1alpha1.DPFOperatorConfigSpec{
 				Networking: &operatorv1alpha1.Networking{
-					ControlPlaneMTU: &mtu,
+					HighSpeedMTU: &mtu,
 				},
 			},
 		}
@@ -341,7 +341,7 @@ var _ = Describe("generateIgnition integration", func() {
 		// Override MTU to 1500
 		operatorConfig := objects[5].(*operatorv1alpha1.DPFOperatorConfig)
 		mtu := int(1500)
-		operatorConfig.Spec.Networking.ControlPlaneMTU = &mtu
+		operatorConfig.Spec.Networking.HighSpeedMTU = &mtu
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
