@@ -38,7 +38,7 @@ ARG release=22
 ARG version=v4
 
 LABEL com.redhat.component="must-gather-rhel10" \
-      name="dpu-kit-for-nvidia-operator/must-gather-rhel10" \
+      name="dpu-kit-for-nvidia/must-gather-rhel10" \
       version="${version}" \
       upstream-ref="${version}" \
       upstream-url="https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator" \
