@@ -8,9 +8,9 @@ nameOverride: dpf-hcp-provisioner-operator
 # Operator image configuration
 image:
   # Repository for the operator image
-  repository: quay.io/lhadad/dpf-hcp-provisioner-operator
+  repository: registry.redhat.io/dpu-kit-for-nvidia/dpf-hcp-provisioner-rhel10-operator
   # Image tag (defaults to Chart appVersion if not specified)
-  tag: v0.1.0
+  tag: v4.22
   # Image digest (when set, takes precedence over tag for immutable deployments)
   # Example: sha256:abc123...
   digest: ""
