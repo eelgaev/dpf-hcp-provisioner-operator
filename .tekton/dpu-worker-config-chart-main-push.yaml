@@ -12,9 +12,9 @@ metadata:
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: dpf-hcp-provisioner-operator
-    appstudio.openshift.io/component: dpu-worker-config-chart
+    appstudio.openshift.io/component: dpu-worker-config-chart-main
     pipelines.appstudio.openshift.io/type: build
-  name: dpu-worker-config-chart-on-push
+  name: dpu-worker-config-chart-main-on-push
   namespace: dpu-kit-for-nvidia-operator-tenant
 spec:
   params:
@@ -23,7 +23,7 @@ spec:
     - name: revision
       value: '{{revision}}'
     - name: output-image
-      value: quay.io/redhat-user-workloads/dpu-kit-for-nvidia-operator-tenant/dpu-worker-config-chart:{{revision}}
+      value: quay.io/redhat-user-workloads/dpu-kit-for-nvidia-operator-tenant/dpu-worker-config-chart-main:{{revision}}
     - name: chart-context
       value: helm/dpu-worker-config/
   pipelineSpec:
@@ -202,7 +202,7 @@ spec:
       - name: netrc
         optional: true
   taskRunTemplate:
-    serviceAccountName: build-pipeline-dpu-worker-config-chart
+    serviceAccountName: build-pipeline-dpu-worker-config-chart-main
   workspaces:
     - name: git-auth
       secret:
