@@ -27,7 +27,7 @@ spec:
     - name: chart-context
       value: helm/dpu-worker-config/
     - name: CHART_VERSION
-      value: v4.22
+      value: 4.22.0
   pipelineSpec:
     description: |
       This pipeline packages and pushes a Helm chart to an OCI repository using trusted artifacts.

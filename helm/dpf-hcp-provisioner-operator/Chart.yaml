@@ -2,7 +2,7 @@ apiVersion: v2
 name: dpf-hcp-provisioner-chart
 description: Kubernetes operator that provisions DPF and Hypershift, abstracting the complexity of Hypershift management and automating the full lifecycle of Hypershift in a DPU context
 type: application
-version: 0.1.0
+version: 4.22.0
 appVersion: v4.22
 keywords:
   - operator
