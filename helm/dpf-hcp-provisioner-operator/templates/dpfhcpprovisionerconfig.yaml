@@ -11,7 +11,7 @@ metadata:
   labels:
     {{- include "dpf-hcp-provisioner-operator.labels" . | nindent 4 }}
 spec:
-  blueFieldOCPLayerRepo: {{ .Values.provisionerConfig.blueFieldOCPLayerRepo | default "quay.io/eelgaev/rhcos-bfb" | quote }}
+  blueFieldOCPLayerRepo: {{ .Values.provisionerConfig.blueFieldOCPLayerRepo | default "registry.redhat.io/dpu-kit-for-nvidia/bluefield-ocp-layer-rhel10" | quote }}
   {{- if hasKey .Values.provisionerConfig "disableMetalLB" }}
   disableMetalLB: {{ .Values.provisionerConfig.disableMetalLB }}
   {{- end }}
