@@ -2,7 +2,7 @@ apiVersion: v2
 name: dpu-worker-config-chart
 description: Host-cluster configuration for DPU worker nodes — deploys MachineConfigPool, MachineConfig, bridge networking scripts, and CNO ConfigMaps required for DPU-enabled OpenShift workers
 type: application
-version: 0.1.0
+version: 4.22.0
 appVersion: v0.1.0
 keywords:
   - dpu
