@@ -155,6 +155,8 @@ spec:
             value: $(tasks.prefetch-dependencies.results.SOURCE_ARTIFACT)
           - name: CHART_CONTEXT
             value: $(params.chart-context)
+          - name: CHART_VERSION
+            value: $(params.CHART_VERSION)
         runAfter:
           - prefetch-dependencies
         taskRef:
