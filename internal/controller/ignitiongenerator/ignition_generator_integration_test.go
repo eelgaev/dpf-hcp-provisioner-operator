@@ -660,6 +660,7 @@ var _ = Describe("generateIgnition integration", func() {
 		resolved = strings.ReplaceAll(resolved, "{{.DPUNamespace}}", "dpf-operator-system")
 		resolved = strings.ReplaceAll(resolved, "{{.DPUUID}}", "12345678-1234-1234-1234-123456789abc")
 		resolved = strings.ReplaceAll(resolved, "{{.KernelParameters}}", "console=ttyAMA0")
+		resolved = strings.ReplaceAll(resolved, "{{.ControlPlaneMTU}}", "1500")
 
 		// Parse the resolved live ignition
 		liveIgn := &igntypes.Config{}
