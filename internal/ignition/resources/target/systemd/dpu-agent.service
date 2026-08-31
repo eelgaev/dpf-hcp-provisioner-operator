@@ -15,6 +15,7 @@ ExecStart=/usr/local/bin/dpu-agent \
   --dpu-namespace $DPUNamespace \
   --dpu-uid $DPUUID \
   --dpuflavor /etc/dpf/dpuflavor.yaml \
+  --control-plane-mtu $ControlPlaneMTU \
   --skip-containerd-config \
   --skip-dns-config \
   --skip-kernel-cmd-line \

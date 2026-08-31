@@ -521,6 +521,16 @@ var _ = Describe("buildTargetIgnition", func() {
 			}
 		}
 		Expect(hasOVS).To(BeTrue())
+
+		var dpuAgentUnit *igntypes.Unit
+		for i := range result.Systemd.Units {
+			if result.Systemd.Units[i].Name == "dpu-agent.service" {
+				dpuAgentUnit = &result.Systemd.Units[i]
+				break
+			}
+		}
+		Expect(dpuAgentUnit).NotTo(BeNil())
+		Expect(*dpuAgentUnit.Contents).To(ContainSubstring("--control-plane-mtu $ControlPlaneMTU"))
 	})
 
 	It("should preserve HCP ignition version from upstream", func() {
@@ -625,6 +635,16 @@ var _ = Describe("buildLiveIgnition", func() {
 		Expect(*targetFile.Contents.Source).To(HavePrefix("data:;base64,"))
 		Expect(targetFile.Contents.Compression).NotTo(BeNil())
 		Expect(*targetFile.Contents.Compression).To(Equal("gzip"))
+
+		var envFile *igntypes.File
+		for i := range result.Storage.Files {
+			if result.Storage.Files[i].Path == "/etc/dpf/environment" {
+				envFile = &result.Storage.Files[i]
+				break
+			}
+		}
+		Expect(envFile).NotTo(BeNil())
+		Expect(*envFile.Contents.Source).To(ContainSubstring("ControlPlaneMTU={{.ControlPlaneMTU}}"))
 	})
 
 	It("should copy passwd from HCP ignition", func() {
