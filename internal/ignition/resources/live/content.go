@@ -41,7 +41,8 @@ func NewProvider(zeroTrust bool) *content.EmbeddedProvider {
 				"DPUName={{.DPUName}}" + nl +
 				"DPUNamespace={{.DPUNamespace}}" + nl +
 				"DPUUID={{.DPUUID}}" + nl +
-				"DPUMode=" + dpuMode + nl,
+				"DPUMode=" + dpuMode + nl +
+				"ControlPlaneMTU={{.ControlPlaneMTU}}" + nl,
 		},
 		{
 			Path:          "/usr/local/bin/install-rhcos-dpf.sh",
