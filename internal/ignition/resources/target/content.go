@@ -126,6 +126,12 @@ func NewProvider(zeroTrust bool) *content.EmbeddedProvider {
 				ContentSource: f("pf-monitor.sh"),
 			},
 		},
+		Links: []content.LinkDefinition{
+			{
+				Path:   "/etc/localtime",
+				Target: "/usr/share/zoneinfo/UTC",
+			},
+		},
 		SystemdFS: &systemdFS,
 	}
 
