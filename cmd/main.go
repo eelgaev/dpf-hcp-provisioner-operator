@@ -58,6 +58,7 @@ import (
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/ignitiongenerator"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/kubeconfiginjection"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/metallb"
+	ovshugepages "github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/ovs-hugepages"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/secrets"
 	metallbv1beta1 "go.universe.tf/metallb/api/v1beta1"
 	// +kubebuilder:scaffold:imports
@@ -297,6 +298,9 @@ func main() {
 	// Initialize Ignition Generator for DPF provisioning
 	ignitionGenerator := ignitiongenerator.NewIgnitionGenerator(client, scheme, provisionerRecorder)
 
+	// Initialize OVS Hugepages Manager for the hosted-cluster reservation DaemonSet
+	hugepagesManager := ovshugepages.NewManager(client, provisionerRecorder)
+
 	// Setup main DPFHCPProvisioner controller
 	if err := (&controller.DPFHCPProvisionerReconciler{
 		Client:               client,
@@ -313,6 +317,7 @@ func main() {
 		StatusSyncer:         statusSyncer,
 		KubeconfigInjector:   kubeconfigInjector,
 		IgnitionGenerator:    ignitionGenerator,
+		HugepagesManager:     hugepagesManager,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPFHCPProvisioner")
 		os.Exit(1)
