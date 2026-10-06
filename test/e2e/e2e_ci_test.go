@@ -44,6 +44,20 @@ var _ = Describe("DPFHCPProvisioner E2E", Ordered, Label("ocp-required"), func()
 		hcConfig       *rest.Config
 	)
 
+	ensureHostedClusterAPI := func() {
+		if hcConfig != nil {
+			return
+		}
+
+		By("getting HostedCluster kubeconfig")
+		b64Kubeconfig := getHostedClusterKubeconfig(ciNamespace, provisionerName)
+		kubeconfigFile = writeKubeconfigToFile(b64Kubeconfig)
+		hcConfig = loadHCConfig(kubeconfigFile)
+
+		By("waiting for HostedCluster API to be reachable")
+		waitForHostedClusterAPIReachable(hcConfig, 5*time.Minute)
+	}
+
 	BeforeAll(func() {
 		By("cleaning up any stale resources from previous runs")
 		cleanupStaleResources()
@@ -403,6 +417,7 @@ var _ = Describe("DPFHCPProvisioner E2E", Ordered, Label("ocp-required"), func()
 			Expect(condMap["DPUClusterMissing"]).To(Equal(metav1.ConditionFalse),
 				"DPUClusterMissing should be False")
 		})
+
 	})
 
 	Context("HostedCluster Upgrade", func() {
@@ -516,15 +531,7 @@ var _ = Describe("DPFHCPProvisioner E2E", Ordered, Label("ocp-required"), func()
 			if getCRPhase(provisionerName) != "Ready" {
 				Skip("Skipping CSR tests - CR not in Ready state")
 			}
-			if kubeconfigFile == "" {
-				By("getting HostedCluster kubeconfig")
-				b64Kubeconfig := getHostedClusterKubeconfig(ciNamespace, provisionerName)
-				kubeconfigFile = writeKubeconfigToFile(b64Kubeconfig)
-				hcConfig = loadHCConfig(kubeconfigFile)
-
-				By("waiting for HostedCluster API to be reachable")
-				waitForHostedClusterAPIReachable(hcConfig, 5*time.Minute)
-			}
+			ensureHostedClusterAPI()
 		})
 
 		AfterEach(func() {

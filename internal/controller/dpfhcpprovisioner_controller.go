@@ -54,6 +54,7 @@ import (
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/ignitiongenerator"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/kubeconfiginjection"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/metallb"
+	ovshugepages "github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/ovs-hugepages"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/secrets"
 )
 
@@ -73,6 +74,7 @@ type DPFHCPProvisionerReconciler struct {
 	StatusSyncer         *hostedcluster.StatusSyncer
 	KubeconfigInjector   *kubeconfiginjection.KubeconfigInjector
 	IgnitionGenerator    *ignitiongenerator.IgnitionGenerator
+	HugepagesManager     *ovshugepages.Manager
 
 	ignitionReconciled bool
 }
@@ -192,9 +194,14 @@ func (r *DPFHCPProvisionerReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Feature: Copy Secrets to clusters namespace
-	// Only run during Pending phase (all validations must pass first)
-	// Note: We only check for Pending (not Failed) to prevent secret operations when validations fail
-	if cr.Status.Phase == provisioningv1alpha1.PhasePending {
+	// Runs whenever secrets have been validated successfully, not just during Pending phase.
+	// This ensures that when a user rotates credentials (creates a new secret and updates the
+	// CR's PullSecretRef/SSHKeySecretRef), the new copies are created and stale copies removed
+	// in all phases. The copy names encode the source reference, so changing the reference
+	// also changes HostedCluster.Spec.PullSecret.Name, causing HyperShift to create a new
+	// ignition-server token with the correct hash.
+	secretsValid := meta.FindStatusCondition(cr.Status.Conditions, provisioningv1alpha1.SecretsValid)
+	if secretsValid != nil && secretsValid.Status == metav1.ConditionTrue {
 		log.V(1).Info("Copying secrets to clusters namespace")
 		if result, err := r.SecretManager.CopySecrets(ctx, &cr); err != nil || result.RequeueAfter > 0 {
 			if err != nil {
@@ -202,8 +209,10 @@ func (r *DPFHCPProvisionerReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			}
 			return result, err
 		}
+	}
 
-		// Generate ETCD encryption key
+	// Generate ETCD encryption key (only once during initial provisioning)
+	if cr.Status.Phase == provisioningv1alpha1.PhasePending {
 		log.V(1).Info("Generating ETCD encryption key")
 		if result, err := r.SecretManager.GenerateETCDEncryptionKey(ctx, &cr); err != nil || result.RequeueAfter > 0 {
 			if err != nil {
@@ -211,8 +220,6 @@ func (r *DPFHCPProvisionerReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			}
 			return result, err
 		}
-	} else {
-		log.V(1).Info("Skipping secret management - cluster already provisioned or being deleted", "phase", cr.Status.Phase)
 	}
 
 	// This MUST run BEFORE reconcileHostedClusterAndNodePool so conditions are set
@@ -226,24 +233,7 @@ func (r *DPFHCPProvisionerReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return result, err
 	}
 
-	// Set hostedClusterRef if HostedCluster exists and is owned by this CR
-	// This ensures the ref is always set when the HostedCluster exists, regardless of phase
-	if cr.Status.HostedClusterRef == nil {
-		hc := &hyperv1.HostedCluster{}
-		hcKey := types.NamespacedName{Name: cr.Name, Namespace: cr.Namespace}
-		if err := r.Get(ctx, hcKey, hc); err == nil {
-			// HostedCluster exists - verify ownership and set ref
-			if metav1.IsControlledBy(hc, &cr) {
-				log.V(1).Info("Setting hostedClusterRef for existing HostedCluster")
-				cr.Status.HostedClusterRef = &corev1.ObjectReference{
-					Name:       cr.Name,
-					Namespace:  cr.Namespace,
-					Kind:       "HostedCluster",
-					APIVersion: "hypershift.openshift.io/v1beta1",
-				}
-			}
-		}
-	}
+	r.setHostedClusterRefIfOwned(ctx, &cr)
 
 	// Feature: HostedCluster Status Mirroring
 	// Sync status from HostedCluster to DPFHCPProvisioner
@@ -297,8 +287,51 @@ func (r *DPFHCPProvisionerReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
+	// Feature: Hugepages reservation DaemonSet
+	// Create a DaemonSet inside the hosted cluster that runs one idle pod per node
+	// (each node is a DPU), reserving hugepages so they are not consumed by other
+	// workloads. Runs as the last step of reconciliation. Non-fatal: the hosted
+	// cluster API may not be reachable yet (e.g. control plane still coming up),
+	// so we don't fail the whole reconcile. Instead we return a bounded retry
+	// delay so the reconcile is retried even if no other event re-triggers it.
+	result := ctrl.Result{}
+	if cr.Status.HostedClusterRef != nil {
+		log.V(1).Info("Reconciling hugepages reservation DaemonSet")
+		if err := r.HugepagesManager.ReconcileHugepagesDaemonSet(ctx, &cr, operatorConfig.OVSHugepagesSize, operatorConfig.OVSHugepagesAmount); err != nil {
+			log.V(1).Info("Hugepages reservation DaemonSet reconciliation deferred, will retry", "error", err.Error())
+			result.RequeueAfter = 30 * time.Second
+		}
+	} else {
+		log.V(1).Info("Skipping hugepages reservation - HostedCluster not created yet")
+	}
+
 	log.Info("Reconciliation complete", "namespace", cr.Namespace, "name", cr.Name, "phase", cr.Status.Phase)
-	return ctrl.Result{}, nil
+	return result, nil
+}
+
+// setHostedClusterRefIfOwned ensures the HostedCluster reference is set whenever
+// an owned HostedCluster exists, regardless of the provisioner's phase.
+func (r *DPFHCPProvisionerReconciler) setHostedClusterRefIfOwned(
+	ctx context.Context,
+	cr *provisioningv1alpha1.DPFHCPProvisioner,
+) {
+	if cr.Status.HostedClusterRef != nil {
+		return
+	}
+
+	hc := &hyperv1.HostedCluster{}
+	hcKey := types.NamespacedName{Name: cr.Name, Namespace: cr.Namespace}
+	if err := r.Get(ctx, hcKey, hc); err != nil || !metav1.IsControlledBy(hc, cr) {
+		return
+	}
+
+	logf.FromContext(ctx).V(1).Info("Setting hostedClusterRef for existing HostedCluster")
+	cr.Status.HostedClusterRef = &corev1.ObjectReference{
+		Name:       cr.Name,
+		Namespace:  cr.Namespace,
+		Kind:       "HostedCluster",
+		APIVersion: "hypershift.openshift.io/v1beta1",
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
