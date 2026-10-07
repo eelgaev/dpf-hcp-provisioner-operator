@@ -14,27 +14,29 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package hostedclient
+package ovshugepages
 
 import (
 	"context"
-	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-var _ = Describe("GetHostedClusterClient", func() {
-	It("reuses the client until the admin kubeconfig secret changes", func() {
-		ctx := context.Background()
-		scheme := runtime.NewScheme()
-		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+var _ = Describe("newHostedClusterClient", func() {
+	var scheme *runtime.Scheme
 
+	BeforeEach(func() {
+		scheme = runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+	})
+
+	It("builds a fresh client from the admin kubeconfig secret", func() {
+		ctx := context.Background()
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "ns",
@@ -45,26 +47,28 @@ var _ = Describe("GetHostedClusterClient", func() {
 			},
 		}
 		mgmtClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
-		cm := NewClientManager(mgmtClient)
 
-		first, err := cm.GetHostedClusterClient(ctx, "ns", "hc")
+		// Does not cache: each call reads the secret and builds a new client.
+		first, err := newHostedClusterClient(ctx, mgmtClient, "ns", "hc")
 		Expect(err).NotTo(HaveOccurred())
-		second, err := cm.GetHostedClusterClient(ctx, "ns", "hc")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(second).To(BeIdenticalTo(first))
+		Expect(first).NotTo(BeNil())
 
-		Expect(mgmtClient.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "hc-admin-kubeconfig"}, secret)).To(Succeed())
-		secret.Data["kubeconfig"] = kubeconfigForToken("token-b")
-		Expect(mgmtClient.Update(ctx, secret)).To(Succeed())
-
-		third, err := cm.GetHostedClusterClient(ctx, "ns", "hc")
+		second, err := newHostedClusterClient(ctx, mgmtClient, "ns", "hc")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(third).NotTo(BeIdenticalTo(first))
+		Expect(second).NotTo(BeIdenticalTo(first))
+	})
+
+	It("fails when the admin kubeconfig secret is missing", func() {
+		ctx := context.Background()
+		mgmtClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		_, err := newHostedClusterClient(ctx, mgmtClient, "ns", "hc")
+		Expect(err).To(HaveOccurred())
 	})
 })
 
 func kubeconfigForToken(token string) []byte {
-	return []byte(fmt.Sprintf(`apiVersion: v1
+	return []byte(`apiVersion: v1
 kind: Config
 current-context: ctx
 clusters:
@@ -79,6 +83,6 @@ contexts:
 users:
 - name: user
   user:
-    token: %s
-`, token))
+    token: ` + token + `
+`)
 }
