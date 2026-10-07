@@ -21,20 +21,31 @@ import (
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// newHostedClusterClient builds a fresh typed clientset for the hosted cluster. It caches
-// nothing: every call reads the admin kubeconfig and builds a new client. The hugepages
+// hostedClusterScheme knows the types the hugepages reconcile reads/writes in the hosted
+// cluster (Namespaces and DaemonSets), so the controller-runtime client can map them.
+var hostedClusterScheme = runtime.NewScheme()
+
+func init() {
+	utilruntime.Must(corev1.AddToScheme(hostedClusterScheme))
+	utilruntime.Must(appsv1.AddToScheme(hostedClusterScheme))
+}
+
+// newHostedClusterClient builds a fresh controller-runtime client for the hosted cluster. It
+// caches nothing: every call reads the admin kubeconfig and builds a new client. The hugepages
 // reconcile is infrequent and effectively one-shot, so there is nothing to gain from caching
 // (unlike CSR approval, which polls every 30s and keeps its own cached client).
-func newHostedClusterClient(ctx context.Context, mgmtClient client.Client, namespace, name string) (*kubernetes.Clientset, error) {
+func newHostedClusterClient(ctx context.Context, mgmtClient client.Client, namespace, name string) (client.Client, error) {
 	kubeconfigData, err := fetchKubeconfig(ctx, mgmtClient, namespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kubeconfig: %w", err)
@@ -45,12 +56,12 @@ func newHostedClusterClient(ctx context.Context, mgmtClient client.Client, names
 		return nil, err
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	hcClient, err := client.New(config, client.Options{Scheme: hostedClusterScheme})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create clientset: %w", err)
+		return nil, fmt.Errorf("failed to create hosted cluster client: %w", err)
 	}
 
-	return clientset, nil
+	return hcClient, nil
 }
 
 // fetchKubeconfig retrieves the kubeconfig bytes from the hosted cluster's admin secret.

@@ -27,13 +27,12 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	provisioningv1alpha1 "github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/api/v1alpha1"
@@ -74,14 +73,6 @@ const (
 	reservationPriorityClassName = "system-node-critical"
 )
 
-type daemonSetOperation string
-
-const (
-	daemonSetOperationNone    daemonSetOperation = "none"
-	daemonSetOperationCreated daemonSetOperation = "created"
-	daemonSetOperationUpdated daemonSetOperation = "updated"
-)
-
 // Manager reconciles the hugepages reservation DaemonSet inside hosted clusters.
 type Manager struct {
 	mgmtClient client.Client
@@ -106,8 +97,6 @@ func NewManager(mgmtClient client.Client, recorder record.EventRecorder) *Manage
 // DefaultHugepagesSize; an amount of zero disables the reservation. An omitted
 // amount is defaulted to DefaultHugepagesAmount by the DPFHCPProvisionerConfig CRD.
 func (m *Manager) ReconcileHugepagesDaemonSet(ctx context.Context, cr *provisioningv1alpha1.DPFHCPProvisioner, size string, amount int32) error {
-	log := logf.FromContext(ctx)
-
 	if size == "" {
 		size = DefaultHugepagesSize
 	}
@@ -126,19 +115,67 @@ func (m *Manager) ReconcileHugepagesDaemonSet(ctx context.Context, cr *provision
 		}
 	}
 
-	op, err := ensureDaemonSet(ctx, hcClient, size, amount)
-	if err != nil {
+	if err := ensureDaemonSet(ctx, hcClient, size, amount); err != nil {
 		return err
 	}
-	switch {
-	case amount == 0:
+
+	return nil
+}
+
+// ensureNamespace creates the reservation namespace in the hosted cluster if missing.
+func ensureNamespace(ctx context.Context, hcClient client.Client) error {
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: OVSHugepagesNamespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, hcClient, ns, func() error {
+		if ns.Labels == nil {
+			ns.Labels = map[string]string{}
+		}
+		for k, v := range labels() {
+			ns.Labels[k] = v
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to ensure namespace %s: %w", OVSHugepagesNamespace, err)
+	}
+	return nil
+}
+
+// ensureDaemonSet reconciles the reservation DaemonSet in the hosted cluster and logs what it
+// did. An amount of zero removes any existing DaemonSet so its pods stop reserving pages.
+func ensureDaemonSet(ctx context.Context, hcClient client.Client, size string, amount int32) error {
+	log := logf.FromContext(ctx)
+	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: DaemonSetName, Namespace: OVSHugepagesNamespace}}
+
+	if amount == 0 {
+		// Remove any existing reservation so its pods stop holding hugepages.
+		if err := hcClient.Delete(ctx, ds); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
+		}
 		log.V(1).Info("Hugepages reservation disabled in hosted cluster",
 			"namespace", OVSHugepagesNamespace, "name", DaemonSetName)
-	case op == daemonSetOperationCreated:
+		return nil
+	}
+
+	desired := buildDaemonSet(size, amount)
+	op, err := controllerutil.CreateOrUpdate(ctx, hcClient, ds, func() error {
+		ds.Labels = desired.Labels
+		// The selector is immutable after creation, so only set it on create.
+		if ds.CreationTimestamp.IsZero() {
+			ds.Spec.Selector = desired.Spec.Selector
+		}
+		ds.Spec.Template = desired.Spec.Template
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to ensure DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
+	}
+
+	switch op {
+	case controllerutil.OperationResultCreated:
 		log.V(1).Info("Created hugepages reservation DaemonSet in hosted cluster",
 			"namespace", OVSHugepagesNamespace, "name", DaemonSetName,
 			"hugepagesSize", size, "hugepagesCount", amount)
-	case op == daemonSetOperationUpdated:
+	case controllerutil.OperationResultUpdated:
 		log.V(1).Info("Updated hugepages reservation DaemonSet in hosted cluster (drift corrected)",
 			"namespace", OVSHugepagesNamespace, "name", DaemonSetName,
 			"hugepagesSize", size, "hugepagesCount", amount)
@@ -146,79 +183,7 @@ func (m *Manager) ReconcileHugepagesDaemonSet(ctx context.Context, cr *provision
 		log.V(1).Info("Hugepages reservation DaemonSet up to date in hosted cluster",
 			"namespace", OVSHugepagesNamespace, "name", DaemonSetName)
 	}
-
 	return nil
-}
-
-// ensureNamespace creates the reservation namespace in the hosted cluster if missing.
-func ensureNamespace(ctx context.Context, hcClient kubernetes.Interface) error {
-	namespaces := hcClient.CoreV1().Namespaces()
-	_, err := namespaces.Get(ctx, OVSHugepagesNamespace, metav1.GetOptions{})
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to get namespace %s: %w", OVSHugepagesNamespace, err)
-	}
-
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   OVSHugepagesNamespace,
-			Labels: labels(),
-		},
-	}
-	if _, err := namespaces.Create(ctx, ns, metav1.CreateOptions{}); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to create namespace %s: %w", OVSHugepagesNamespace, err)
-	}
-	return nil
-}
-
-// ensureDaemonSet reconciles the reservation DaemonSet in the hosted cluster. An
-// amount of zero removes any existing DaemonSet so its pods stop reserving pages.
-// It returns whether the DaemonSet was created, updated, or left unchanged/deleted.
-func ensureDaemonSet(ctx context.Context, hcClient kubernetes.Interface, size string, amount int32) (daemonSetOperation, error) {
-	daemonSets := hcClient.AppsV1().DaemonSets(OVSHugepagesNamespace)
-
-	if amount == 0 {
-		// Remove any existing reservation so its pods stop holding hugepages.
-		if err := daemonSets.Delete(ctx, DaemonSetName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-			return daemonSetOperationNone, fmt.Errorf("failed to delete DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
-		}
-		return daemonSetOperationNone, nil
-	}
-
-	desired := buildDaemonSet(size, amount)
-
-	ds, err := daemonSets.Get(ctx, DaemonSetName, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		if _, err := daemonSets.Create(ctx, desired, metav1.CreateOptions{}); err != nil {
-			if apierrors.IsAlreadyExists(err) {
-				// A concurrent reconcile created it; the next reconcile will correct any drift.
-				return daemonSetOperationNone, nil
-			}
-			return daemonSetOperationNone, fmt.Errorf("failed to create DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
-		}
-		return daemonSetOperationCreated, nil
-	}
-	if err != nil {
-		return daemonSetOperationNone, fmt.Errorf("failed to get DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
-	}
-
-	before := ds.DeepCopy()
-	ds.Labels = desired.Labels
-	// The selector is immutable after creation, so preserve the current selector.
-	ds.Spec.Template = desired.Spec.Template
-	if equality.Semantic.DeepEqual(before, ds) {
-		return daemonSetOperationNone, nil
-	}
-
-	if _, err := daemonSets.Update(ctx, ds, metav1.UpdateOptions{}); err != nil {
-		return daemonSetOperationNone, fmt.Errorf("failed to update DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
-	}
-	return daemonSetOperationUpdated, nil
 }
 
 // buildDaemonSet builds the reservation DaemonSet. The pod does nothing but idle;

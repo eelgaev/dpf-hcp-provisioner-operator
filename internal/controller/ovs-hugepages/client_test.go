@@ -55,6 +55,7 @@ var _ = Describe("newHostedClusterClient", func() {
 
 		second, err := newHostedClusterClient(ctx, mgmtClient, "ns", "hc")
 		Expect(err).NotTo(HaveOccurred())
+		Expect(second).NotTo(BeNil())
 		Expect(second).NotTo(BeIdenticalTo(first))
 	})
 
