@@ -25,7 +25,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -86,11 +85,11 @@ type Manager struct {
 	releaseReader dpuservicetemplate.ReleaseImageReader
 	recorder      record.EventRecorder
 
-	// mu protects pauseImages, which caches the pause image resolved from each hosted
-	// cluster's release payload (keyed by release image ref). Resolving pulls and
-	// extracts the release payload, so we do it once per release rather than on every
-	// reconcile. The release image changes only on cluster upgrade.
-	mu          sync.RWMutex
+	// pauseImages caches the pause image resolved from each hosted cluster's release
+	// payload (keyed by release image ref). Resolving pulls and extracts the release
+	// payload, so we do it once per release rather than on every reconcile; the release
+	// image changes only on cluster upgrade. Reconciles run serially (the controller
+	// uses the default concurrency of 1), so no locking is needed.
 	pauseImages map[string]string
 }
 
@@ -158,10 +157,7 @@ func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha
 	log := logf.FromContext(ctx)
 	releaseImage := cr.Spec.OCPReleaseImage
 
-	m.mu.RLock()
-	cached, ok := m.pauseImages[releaseImage]
-	m.mu.RUnlock()
-	if ok {
+	if cached, ok := m.pauseImages[releaseImage]; ok {
 		return cached, nil
 	}
 
@@ -170,9 +166,7 @@ func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha
 		return "", fmt.Errorf("resolving pause image from release %q: %w", releaseImage, err)
 	}
 
-	m.mu.Lock()
 	m.pauseImages[releaseImage] = resolved
-	m.mu.Unlock()
 	log.V(1).Info("Resolved hugepages reservation pause image from release payload",
 		"releaseImage", releaseImage, "pauseImage", resolved)
 	return resolved, nil
