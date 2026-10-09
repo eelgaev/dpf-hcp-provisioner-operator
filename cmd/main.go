@@ -306,7 +306,7 @@ func main() {
 
 	// Initialize OVS Hugepages Manager for the hosted-cluster reservation DaemonSet
 	hugepagesManager := ovshugepages.NewManager(
-		client, hostedClientManager, &dpuservicetemplate.RemoteReleaseImageReader{}, provisionerRecorder)
+		client, hostedClientManager, &dpuservicetemplate.RemoteReleaseImageReader{})
 
 	// Setup main DPFHCPProvisioner controller
 	if err := (&controller.DPFHCPProvisionerReconciler{

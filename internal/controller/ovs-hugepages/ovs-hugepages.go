@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -44,24 +43,10 @@ import (
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/hostedclient"
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Tunables — the knobs most likely to change live here so they are easy to spot.
-// ─────────────────────────────────────────────────────────────────────────────
 const (
-	// pausePayloadImage is the name of the pause/sandbox image in an OCP release
-	// payload's image-references manifest (the "pod" tag). Resolving it yields the
-	// exact "ose-pod" image the hosted cluster's own nodes already run, so the
-	// reservation pods reuse an image already present on every node (no extra pull, no
-	// mirroring gap).
-	pausePayloadImage = "pod" // resolves to the "ose-pod" image
-
-	// DefaultHugepagesSize is the fallback hugepage size when the operator config does
-	// not specify one. It selects the "hugepages-<size>" extended resource.
-	DefaultHugepagesSize = "2Mi"
-
-	// DefaultHugepagesAmount is the fallback number of hugepages each dummy pod reserves
-	// per node when the operator config does not specify one. 250 pages x 2Mi = 500Mi.
-	DefaultHugepagesAmount = 250
+	pausePayloadImage      = "pod" // resolves to the "ose-pod" image in the release payload
+	DefaultHugepagesSize   = "2Mi" // hugepage size selecting the "hugepages-2Mi" resource
+	DefaultHugepagesAmount = 250   // pages per node; 250 x 2Mi = 500Mi reserved for OVS
 )
 
 const (
@@ -84,26 +69,18 @@ type Manager struct {
 	mgmtClient    client.Client
 	clientManager *hostedclient.ClientManager
 	releaseReader dpuservicetemplate.ReleaseImageReader
-	recorder      record.EventRecorder
 
-	// pauseImages caches the pause image resolved from each hosted cluster's release
-	// payload (keyed by release image ref). Resolving pulls and extracts the release
-	// payload, so we do it once per release rather than on every reconcile; the release
-	// image changes only on cluster upgrade. Reconciles run serially (the controller
-	// uses the default concurrency of 1), so no locking is needed.
+	// pauseImages caches the resolved pause image per release image ref so we don't
+	// re-pull the release payload on every reconcile. No locking needed — reconciles
+	// run serially (default concurrency of 1).
 	pauseImages map[string]string
 }
 
-// NewManager creates a new hugepages reservation manager. It shares the hosted-cluster
-// client manager with the other reconcilers so there is a single client path. mgmtClient
-// and releaseReader are used to resolve the reservation pod's pause image from the hosted
-// cluster's OCP release payload at runtime.
-func NewManager(mgmtClient client.Client, clientManager *hostedclient.ClientManager, releaseReader dpuservicetemplate.ReleaseImageReader, recorder record.EventRecorder) *Manager {
+func NewManager(mgmtClient client.Client, clientManager *hostedclient.ClientManager, releaseReader dpuservicetemplate.ReleaseImageReader) *Manager {
 	return &Manager{
 		mgmtClient:    mgmtClient,
 		clientManager: clientManager,
 		releaseReader: releaseReader,
-		recorder:      recorder,
 		pauseImages:   make(map[string]string),
 	}
 }
