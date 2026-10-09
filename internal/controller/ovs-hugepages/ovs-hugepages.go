@@ -211,25 +211,8 @@ func (m *Manager) resolvePauseImageFromRelease(ctx context.Context, cr *provisio
 // ensureNamespace creates the reservation namespace in the hosted cluster if missing.
 func ensureNamespace(ctx context.Context, hcClient kubernetes.Interface) error {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: OVSHugepagesNamespace}}
-	nsClient := hcClient.CoreV1().Namespaces()
-	_, err := hostedclient.CreateOrUpdate(ctx, ns,
-		func(ctx context.Context) error {
-			got, err := nsClient.Get(ctx, OVSHugepagesNamespace, metav1.GetOptions{})
-			if err != nil {
-				return err
-			}
-			*ns = *got
-			return nil
-		},
-		func(ctx context.Context) error {
-			_, err := nsClient.Create(ctx, ns, metav1.CreateOptions{})
-			return err
-		},
-		func(ctx context.Context) error {
-			_, err := nsClient.Update(ctx, ns, metav1.UpdateOptions{})
-			return err
-		},
-		func() error {
+	_, err := hostedclient.CreateOrUpdate(ctx, hcClient.CoreV1().Namespaces(), OVSHugepagesNamespace, ns,
+		func(ns *corev1.Namespace) error {
 			if ns.Labels == nil {
 				ns.Labels = map[string]string{}
 			}
@@ -263,24 +246,8 @@ func ensureDaemonSet(ctx context.Context, hcClient kubernetes.Interface, image, 
 
 	desired := buildDaemonSet(image, size, amount)
 	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: DaemonSetName, Namespace: OVSHugepagesNamespace}}
-	op, err := hostedclient.CreateOrUpdate(ctx, ds,
-		func(ctx context.Context) error {
-			got, err := dsClient.Get(ctx, DaemonSetName, metav1.GetOptions{})
-			if err != nil {
-				return err
-			}
-			*ds = *got
-			return nil
-		},
-		func(ctx context.Context) error {
-			_, err := dsClient.Create(ctx, ds, metav1.CreateOptions{})
-			return err
-		},
-		func(ctx context.Context) error {
-			_, err := dsClient.Update(ctx, ds, metav1.UpdateOptions{})
-			return err
-		},
-		func() error {
+	op, err := hostedclient.CreateOrUpdate(ctx, dsClient, DaemonSetName, ds,
+		func(ds *appsv1.DaemonSet) error {
 			ds.Labels = desired.Labels
 			// The selector is immutable after creation, so only set it on create.
 			if ds.CreationTimestamp.IsZero() {
