@@ -28,6 +28,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -229,7 +230,6 @@ func ensureDaemonSet(ctx context.Context, hcClient kubernetes.Interface, image, 
 	dsClient := hcClient.AppsV1().DaemonSets(OVSHugepagesNamespace)
 
 	if amount == 0 {
-		// Remove any existing reservation so its pods stop holding hugepages.
 		if err := dsClient.Delete(ctx, DaemonSetName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to delete DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
 		}
@@ -239,35 +239,37 @@ func ensureDaemonSet(ctx context.Context, hcClient kubernetes.Interface, image, 
 	}
 
 	desired := buildDaemonSet(image, size, amount)
-	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: DaemonSetName, Namespace: OVSHugepagesNamespace}}
-	op, err := hostedclient.CreateOrUpdate(ctx, dsClient, DaemonSetName, ds,
-		func(ds *appsv1.DaemonSet) error {
-			ds.Labels = desired.Labels
-			// The selector is immutable after creation, so only set it on create.
-			if ds.CreationTimestamp.IsZero() {
-				ds.Spec.Selector = desired.Spec.Selector
-			}
-			ds.Spec.Template = desired.Spec.Template
-			return nil
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to ensure DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
-	}
 
-	switch op {
-	case hostedclient.OperationResultCreated:
+	existing, err := dsClient.Get(ctx, DaemonSetName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		if _, err := dsClient.Create(ctx, desired, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("failed to create DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
+		}
 		log.V(1).Info("Created hugepages reservation DaemonSet in hosted cluster",
 			"namespace", OVSHugepagesNamespace, "name", DaemonSetName,
 			"hugepagesSize", size, "hugepagesCount", amount)
-	case hostedclient.OperationResultUpdated:
-		log.V(1).Info("Updated hugepages reservation DaemonSet in hosted cluster (drift corrected)",
-			"namespace", OVSHugepagesNamespace, "name", DaemonSetName,
-			"hugepagesSize", size, "hugepagesCount", amount)
-	default:
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
+	}
+
+	before := existing.DeepCopy()
+	existing.Labels = desired.Labels
+	existing.Spec.Template = desired.Spec.Template
+
+	if equality.Semantic.DeepEqual(before, existing) {
 		log.V(1).Info("Hugepages reservation DaemonSet up to date in hosted cluster",
 			"namespace", OVSHugepagesNamespace, "name", DaemonSetName)
+		return nil
 	}
+
+	if _, err := dsClient.Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("failed to update DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
+	}
+	log.V(1).Info("Updated hugepages reservation DaemonSet in hosted cluster (drift corrected)",
+		"namespace", OVSHugepagesNamespace, "name", DaemonSetName,
+		"hugepagesSize", size, "hugepagesCount", amount)
 	return nil
 }
 
