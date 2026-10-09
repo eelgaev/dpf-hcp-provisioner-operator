@@ -55,13 +55,6 @@ const (
 	// mirroring gap).
 	pausePayloadImage = "pod" // resolves to the "ose-pod" image
 
-	// fallbackPauseImage is used only when the pause image cannot be resolved from the
-	// hosted cluster's release payload at runtime (e.g. the registry is unreachable or
-	// the pull secret is missing). The pause/infra ("pod") image just idles forever,
-	// needs no command or shell, and is multi-arch (the DPU nodes are aarch64). We pin a
-	// readable version tag rather than :latest so the fallback stays reproducible.
-	fallbackPauseImage = "registry.redhat.io/openshift4/ose-pod:v4.14.0"
-
 	// DefaultHugepagesSize is the fallback hugepage size when the operator config does
 	// not specify one. It selects the "hugepages-<size>" extended resource.
 	DefaultHugepagesSize = "2Mi"
@@ -137,28 +130,31 @@ func (m *Manager) ReconcileHugepagesDaemonSet(ctx context.Context, cr *provision
 		return fmt.Errorf("failed to get hosted cluster client: %w", err)
 	}
 
-	pauseImage := fallbackPauseImage
-	if amount > 0 {
-		if err := ensureNamespace(ctx, hcClient); err != nil {
-			return err
-		}
-		// Resolve the pause image from the hosted cluster's own release payload so the
-		// reservation pods run the exact image their nodes already have.
-		pauseImage = m.resolvePauseImage(ctx, cr)
+	// When disabled (amount == 0) no image is needed: ensureDaemonSet just removes
+	// any existing reservation.
+	if amount == 0 {
+		return ensureDaemonSet(ctx, hcClient, "", size, amount)
 	}
 
-	if err := ensureDaemonSet(ctx, hcClient, pauseImage, size, amount); err != nil {
+	if err := ensureNamespace(ctx, hcClient); err != nil {
 		return err
 	}
 
-	return nil
+	// Resolve the pause image from the hosted cluster's own release payload so the
+	// reservation pods run the exact image their nodes already have. On failure we
+	// return an error so the reconcile requeues rather than deploying a guessed image.
+	pauseImage, err := m.resolvePauseImage(ctx, cr)
+	if err != nil {
+		return err
+	}
+
+	return ensureDaemonSet(ctx, hcClient, pauseImage, size, amount)
 }
 
 // resolvePauseImage returns the pause/sandbox image for the reservation pods, resolved
-// from the hosted cluster's OCP release payload and cached per release image. On any
-// resolution failure it logs and returns fallbackPauseImage without caching, so the next
-// reconcile retries.
-func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha1.DPFHCPProvisioner) string {
+// from the hosted cluster's OCP release payload and cached per release image. It returns
+// an error on resolution failure (nothing is cached) so the caller can requeue and retry.
+func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha1.DPFHCPProvisioner) (string, error) {
 	log := logf.FromContext(ctx)
 	releaseImage := cr.Spec.OCPReleaseImage
 
@@ -166,14 +162,12 @@ func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha
 	cached, ok := m.pauseImages[releaseImage]
 	m.mu.RUnlock()
 	if ok {
-		return cached
+		return cached, nil
 	}
 
 	resolved, err := m.resolvePauseImageFromRelease(ctx, cr, releaseImage)
 	if err != nil {
-		log.Error(err, "Failed to resolve pause image from release payload; using fallback",
-			"releaseImage", releaseImage, "fallback", fallbackPauseImage)
-		return fallbackPauseImage
+		return "", fmt.Errorf("resolving pause image from release %q: %w", releaseImage, err)
 	}
 
 	m.mu.Lock()
@@ -181,7 +175,7 @@ func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha
 	m.mu.Unlock()
 	log.V(1).Info("Resolved hugepages reservation pause image from release payload",
 		"releaseImage", releaseImage, "pauseImage", resolved)
-	return resolved
+	return resolved, nil
 }
 
 // resolvePauseImageFromRelease extracts the aarch64 pause ("pod") image from the hosted
