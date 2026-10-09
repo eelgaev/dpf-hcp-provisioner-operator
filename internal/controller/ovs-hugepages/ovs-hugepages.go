@@ -24,6 +24,8 @@ package ovshugepages
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -32,9 +34,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	provisioningv1alpha1 "github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/api/v1alpha1"
+	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/common"
+	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/bfocplookup"
+	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/dpuservicetemplate"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/hostedclient"
 )
 
@@ -42,12 +48,19 @@ import (
 // Tunables — the knobs most likely to change live here so they are easy to spot.
 // ─────────────────────────────────────────────────────────────────────────────
 const (
-	// DummyPodImage is the image used by the reservation pods. We use the OpenShift
-	// pause/infra ("pod") image: it does nothing but idle forever, needs no command
-	// or shell, is multi-arch (the DPU nodes are aarch64), and is already present on
-	// every OpenShift node so there is effectively no extra pull and no disconnected
-	// mirroring concern.
-	DummyPodImage = "registry.redhat.io/openshift4/ose-pod:latest"
+	// pausePayloadImage is the name of the pause/sandbox image in an OCP release
+	// payload's image-references manifest (the "pod" tag). Resolving it yields the
+	// exact "ose-pod" image the hosted cluster's own nodes already run, so the
+	// reservation pods reuse an image already present on every node (no extra pull, no
+	// mirroring gap).
+	pausePayloadImage = "pod" // resolves to the "ose-pod" image
+
+	// fallbackPauseImage is used only when the pause image cannot be resolved from the
+	// hosted cluster's release payload at runtime (e.g. the registry is unreachable or
+	// the pull secret is missing). The pause/infra ("pod") image just idles forever,
+	// needs no command or shell, and is multi-arch (the DPU nodes are aarch64). We pin a
+	// readable version tag rather than :latest so the fallback stays reproducible.
+	fallbackPauseImage = "registry.redhat.io/openshift4/ose-pod:v4.14.0"
 
 	// DefaultHugepagesSize is the fallback hugepage size when the operator config does
 	// not specify one. It selects the "hugepages-<size>" extended resource.
@@ -75,16 +88,30 @@ const (
 
 // Manager reconciles the hugepages reservation DaemonSet inside hosted clusters.
 type Manager struct {
+	mgmtClient    client.Client
 	clientManager *hostedclient.ClientManager
+	releaseReader dpuservicetemplate.ReleaseImageReader
 	recorder      record.EventRecorder
+
+	// mu protects pauseImages, which caches the pause image resolved from each hosted
+	// cluster's release payload (keyed by release image ref). Resolving pulls and
+	// extracts the release payload, so we do it once per release rather than on every
+	// reconcile. The release image changes only on cluster upgrade.
+	mu          sync.RWMutex
+	pauseImages map[string]string
 }
 
 // NewManager creates a new hugepages reservation manager. It shares the hosted-cluster
-// client manager with the other reconcilers so there is a single client path.
-func NewManager(clientManager *hostedclient.ClientManager, recorder record.EventRecorder) *Manager {
+// client manager with the other reconcilers so there is a single client path. mgmtClient
+// and releaseReader are used to resolve the reservation pod's pause image from the hosted
+// cluster's OCP release payload at runtime.
+func NewManager(mgmtClient client.Client, clientManager *hostedclient.ClientManager, releaseReader dpuservicetemplate.ReleaseImageReader, recorder record.EventRecorder) *Manager {
 	return &Manager{
+		mgmtClient:    mgmtClient,
 		clientManager: clientManager,
+		releaseReader: releaseReader,
 		recorder:      recorder,
+		pauseImages:   make(map[string]string),
 	}
 }
 
@@ -110,17 +137,81 @@ func (m *Manager) ReconcileHugepagesDaemonSet(ctx context.Context, cr *provision
 		return fmt.Errorf("failed to get hosted cluster client: %w", err)
 	}
 
+	pauseImage := fallbackPauseImage
 	if amount > 0 {
 		if err := ensureNamespace(ctx, hcClient); err != nil {
 			return err
 		}
+		// Resolve the pause image from the hosted cluster's own release payload so the
+		// reservation pods run the exact image their nodes already have.
+		pauseImage = m.resolvePauseImage(ctx, cr)
 	}
 
-	if err := ensureDaemonSet(ctx, hcClient, size, amount); err != nil {
+	if err := ensureDaemonSet(ctx, hcClient, pauseImage, size, amount); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// resolvePauseImage returns the pause/sandbox image for the reservation pods, resolved
+// from the hosted cluster's OCP release payload and cached per release image. On any
+// resolution failure it logs and returns fallbackPauseImage without caching, so the next
+// reconcile retries.
+func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha1.DPFHCPProvisioner) string {
+	log := logf.FromContext(ctx)
+	releaseImage := cr.Spec.OCPReleaseImage
+
+	m.mu.RLock()
+	cached, ok := m.pauseImages[releaseImage]
+	m.mu.RUnlock()
+	if ok {
+		return cached
+	}
+
+	resolved, err := m.resolvePauseImageFromRelease(ctx, cr, releaseImage)
+	if err != nil {
+		log.Error(err, "Failed to resolve pause image from release payload; using fallback",
+			"releaseImage", releaseImage, "fallback", fallbackPauseImage)
+		return fallbackPauseImage
+	}
+
+	m.mu.Lock()
+	m.pauseImages[releaseImage] = resolved
+	m.mu.Unlock()
+	log.V(1).Info("Resolved hugepages reservation pause image from release payload",
+		"releaseImage", releaseImage, "pauseImage", resolved)
+	return resolved
+}
+
+// resolvePauseImageFromRelease extracts the aarch64 pause ("pod") image from the hosted
+// cluster's release payload. DPU nodes are aarch64, so it targets the aarch64 release
+// variant, mirroring how the DPUServiceTemplate reconciler resolves arch-specific images.
+func (m *Manager) resolvePauseImageFromRelease(ctx context.Context, cr *provisioningv1alpha1.DPFHCPProvisioner, releaseImage string) (string, error) {
+	keychain, err := common.KeychainFromPullSecret(ctx, m.mgmtClient, cr.Spec.PullSecretRef.Name, cr.Namespace)
+	if err != nil {
+		return "", fmt.Errorf("getting pull secret keychain: %w", err)
+	}
+
+	version, err := bfocplookup.ExtractOCPVersion(ctx, releaseImage, keychain)
+	if err != nil {
+		return "", fmt.Errorf("extracting OCP version from %q: %w", releaseImage, err)
+	}
+
+	// Build the aarch64 release ref from the registry/repo portion and the version.
+	registry := releaseImage
+	if idx := strings.Index(registry, "@"); idx > 0 {
+		registry = registry[:idx]
+	} else if idx := strings.LastIndex(registry, ":"); idx > 0 {
+		registry = registry[:idx]
+	}
+	aarch64Ref := fmt.Sprintf("%s:%s-aarch64", registry, version)
+
+	pauseImage, err := m.releaseReader.GetComponentImage(ctx, aarch64Ref, pausePayloadImage, keychain)
+	if err != nil {
+		return "", fmt.Errorf("resolving %q image from release %q: %w", pausePayloadImage, aarch64Ref, err)
+	}
+	return pauseImage, nil
 }
 
 // ensureNamespace creates the reservation namespace in the hosted cluster if missing.
@@ -162,7 +253,7 @@ func ensureNamespace(ctx context.Context, hcClient kubernetes.Interface) error {
 
 // ensureDaemonSet reconciles the reservation DaemonSet in the hosted cluster and logs what it
 // did. An amount of zero removes any existing DaemonSet so its pods stop reserving pages.
-func ensureDaemonSet(ctx context.Context, hcClient kubernetes.Interface, size string, amount int32) error {
+func ensureDaemonSet(ctx context.Context, hcClient kubernetes.Interface, image, size string, amount int32) error {
 	log := logf.FromContext(ctx)
 	dsClient := hcClient.AppsV1().DaemonSets(OVSHugepagesNamespace)
 
@@ -176,7 +267,7 @@ func ensureDaemonSet(ctx context.Context, hcClient kubernetes.Interface, size st
 		return nil
 	}
 
-	desired := buildDaemonSet(size, amount)
+	desired := buildDaemonSet(image, size, amount)
 	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: DaemonSetName, Namespace: OVSHugepagesNamespace}}
 	op, err := hostedclient.CreateOrUpdate(ctx, ds,
 		func(ctx context.Context) error {
@@ -227,9 +318,10 @@ func ensureDaemonSet(ctx context.Context, hcClient kubernetes.Interface, size st
 
 // buildDaemonSet builds the reservation DaemonSet. The pod does nothing but idle;
 // its resource requests/limits reserve the hugepages on every node it lands on.
-// size selects the "hugepages-<size>" resource and amount is the number of pages;
-// the reserved quantity is amount x size.
-func buildDaemonSet(size string, amount int32) *appsv1.DaemonSet {
+// image is the pause image the reservation pods run; size selects the
+// "hugepages-<size>" resource and amount is the number of pages; the reserved
+// quantity is amount x size.
+func buildDaemonSet(image, size string, amount int32) *appsv1.DaemonSet {
 	hugepagesResource := corev1.ResourceName("hugepages-" + size)
 	hugepagesQty := hugepagesQuantity(size, amount)
 
@@ -258,7 +350,7 @@ func buildDaemonSet(size string, amount int32) *appsv1.DaemonSet {
 					Containers: []corev1.Container{
 						{
 							Name:  containerName,
-							Image: DummyPodImage,
+							Image: image,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("1m"),

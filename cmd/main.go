@@ -305,7 +305,8 @@ func main() {
 	ignitionGenerator := ignitiongenerator.NewIgnitionGenerator(client, scheme, provisionerRecorder)
 
 	// Initialize OVS Hugepages Manager for the hosted-cluster reservation DaemonSet
-	hugepagesManager := ovshugepages.NewManager(hostedClientManager, provisionerRecorder)
+	hugepagesManager := ovshugepages.NewManager(
+		client, hostedClientManager, &dpuservicetemplate.RemoteReleaseImageReader{}, provisionerRecorder)
 
 	// Setup main DPFHCPProvisioner controller
 	if err := (&controller.DPFHCPProvisionerReconciler{

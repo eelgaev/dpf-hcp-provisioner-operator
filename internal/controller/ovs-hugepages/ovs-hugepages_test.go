@@ -29,9 +29,13 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+// testPauseImage is an arbitrary resolved pause image used to drive the builder and
+// reconcile helpers; the runtime resolution from the release payload is not unit-tested.
+const testPauseImage = "registry.example.com/openshift4/ose-pod@sha256:0123456789abcdef"
+
 var _ = Describe("buildDaemonSet", func() {
 	It("reserves the configured hugepages amount on every node with no nodeSelector", func() {
-		ds := buildDaemonSet(DefaultHugepagesSize, DefaultHugepagesAmount)
+		ds := buildDaemonSet(testPauseImage, DefaultHugepagesSize, DefaultHugepagesAmount)
 
 		Expect(ds.Name).To(Equal(DaemonSetName))
 		Expect(ds.Namespace).To(Equal("openshift-doca-hugepages-holder"))
@@ -46,7 +50,7 @@ var _ = Describe("buildDaemonSet", func() {
 		Expect(podSpec.Containers).To(HaveLen(1))
 		c := podSpec.Containers[0]
 		Expect(c.Name).To(Equal(containerName))
-		Expect(c.Image).To(Equal(DummyPodImage))
+		Expect(c.Image).To(Equal(testPauseImage))
 		// The pause image idles on its own entrypoint — no command/shell needed.
 		Expect(c.Command).To(BeEmpty())
 
@@ -62,7 +66,7 @@ var _ = Describe("buildDaemonSet", func() {
 
 	It("computes amount x size for a custom size and page count", func() {
 		// 4 pages x 1Gi = 4Gi.
-		ds := buildDaemonSet("1Gi", 4)
+		ds := buildDaemonSet(testPauseImage, "1Gi", 4)
 		c := ds.Spec.Template.Spec.Containers[0]
 
 		resourceName := corev1.ResourceName("hugepages-1Gi")
@@ -108,7 +112,7 @@ var _ = Describe("ensureDaemonSet", func() {
 	})
 
 	It("creates the DaemonSet on first call", func() {
-		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, testPauseImage, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
 
 		ds, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
 		Expect(err).NotTo(HaveOccurred())
@@ -116,12 +120,12 @@ var _ = Describe("ensureDaemonSet", func() {
 	})
 
 	It("does not modify the DaemonSet on an unchanged subsequent call", func() {
-		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, testPauseImage, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
 
 		before, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, testPauseImage, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
 
 		after, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
 		Expect(err).NotTo(HaveOccurred())
@@ -135,8 +139,8 @@ var _ = Describe("ensureDaemonSet", func() {
 	})
 
 	It("updates the DaemonSet when the reservation amount changes", func() {
-		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
-		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount*2)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, testPauseImage, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, testPauseImage, DefaultHugepagesSize, DefaultHugepagesAmount*2)).To(Succeed())
 
 		ds, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
 		Expect(err).NotTo(HaveOccurred())
@@ -148,15 +152,15 @@ var _ = Describe("ensureDaemonSet", func() {
 	})
 
 	It("deletes the DaemonSet when amount is zero", func() {
-		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, testPauseImage, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
 
-		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, 0)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, testPauseImage, DefaultHugepagesSize, 0)).To(Succeed())
 
 		_, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	})
 
 	It("is a no-op when amount is zero and nothing exists", func() {
-		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, 0)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, testPauseImage, DefaultHugepagesSize, 0)).To(Succeed())
 	})
 })
