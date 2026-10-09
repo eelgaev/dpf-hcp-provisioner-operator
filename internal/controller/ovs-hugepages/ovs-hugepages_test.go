@@ -21,14 +21,12 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 var _ = Describe("buildDaemonSet", func() {
@@ -77,71 +75,71 @@ var _ = Describe("buildDaemonSet", func() {
 var _ = Describe("ensureNamespace", func() {
 	var (
 		ctx context.Context
-		cl  client.Client
+		cs  kubernetes.Interface
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		cl = fake.NewClientBuilder().WithScheme(hostedClusterScheme).Build()
+		cs = fake.NewSimpleClientset()
 	})
 
 	It("creates the reservation namespace when missing and is idempotent", func() {
-		Expect(ensureNamespace(ctx, cl)).To(Succeed())
+		Expect(ensureNamespace(ctx, cs)).To(Succeed())
 
-		ns := &corev1.Namespace{}
-		Expect(cl.Get(ctx, types.NamespacedName{Name: OVSHugepagesNamespace}, ns)).To(Succeed())
+		ns, err := cs.CoreV1().Namespaces().Get(ctx, OVSHugepagesNamespace, metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
 		Expect(ns.Name).To(Equal("openshift-doca-hugepages-holder"))
 
-		Expect(ensureNamespace(ctx, cl)).To(Succeed())
+		Expect(ensureNamespace(ctx, cs)).To(Succeed())
 	})
 })
 
 var _ = Describe("ensureDaemonSet", func() {
 	var (
 		ctx context.Context
-		cl  client.Client
+		cs  kubernetes.Interface
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		cl = fake.NewClientBuilder().WithScheme(hostedClusterScheme).WithObjects(&corev1.Namespace{
+		cs = fake.NewSimpleClientset(&corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{Name: OVSHugepagesNamespace},
-		}).Build()
+		})
 	})
 
 	It("creates the DaemonSet on first call", func() {
-		Expect(ensureDaemonSet(ctx, cl, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
 
-		ds := &appsv1.DaemonSet{}
-		Expect(cl.Get(ctx, types.NamespacedName{Namespace: OVSHugepagesNamespace, Name: DaemonSetName}, ds)).To(Succeed())
+		ds, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
 		Expect(ds.Name).To(Equal(DaemonSetName))
 	})
 
 	It("does not modify the DaemonSet on an unchanged subsequent call", func() {
-		Expect(ensureDaemonSet(ctx, cl, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
 
-		before := &appsv1.DaemonSet{}
-		Expect(cl.Get(ctx, types.NamespacedName{Namespace: OVSHugepagesNamespace, Name: DaemonSetName}, before)).To(Succeed())
+		before, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
 
-		Expect(ensureDaemonSet(ctx, cl, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
 
-		after := &appsv1.DaemonSet{}
-		Expect(cl.Get(ctx, types.NamespacedName{Namespace: OVSHugepagesNamespace, Name: DaemonSetName}, after)).To(Succeed())
+		after, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
 		// No write happened, so the resourceVersion is unchanged.
 		Expect(after.ResourceVersion).To(Equal(before.ResourceVersion))
 
 		// Still exactly one DaemonSet.
-		list := &appsv1.DaemonSetList{}
-		Expect(cl.List(ctx, list, client.InNamespace(OVSHugepagesNamespace))).To(Succeed())
+		list, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).List(ctx, metav1.ListOptions{})
+		Expect(err).NotTo(HaveOccurred())
 		Expect(list.Items).To(HaveLen(1))
 	})
 
 	It("updates the DaemonSet when the reservation amount changes", func() {
-		Expect(ensureDaemonSet(ctx, cl, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
-		Expect(ensureDaemonSet(ctx, cl, DefaultHugepagesSize, DefaultHugepagesAmount*2)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount*2)).To(Succeed())
 
-		ds := &appsv1.DaemonSet{}
-		Expect(cl.Get(ctx, types.NamespacedName{Namespace: OVSHugepagesNamespace, Name: DaemonSetName}, ds)).To(Succeed())
+		ds, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
 		resourceName := corev1.ResourceName("hugepages-" + DefaultHugepagesSize)
 		// 500 pages x 2Mi = 1000Mi.
 		want := resource.MustParse("1000Mi")
@@ -150,16 +148,15 @@ var _ = Describe("ensureDaemonSet", func() {
 	})
 
 	It("deletes the DaemonSet when amount is zero", func() {
-		Expect(ensureDaemonSet(ctx, cl, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, DefaultHugepagesAmount)).To(Succeed())
 
-		Expect(ensureDaemonSet(ctx, cl, DefaultHugepagesSize, 0)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, 0)).To(Succeed())
 
-		ds := &appsv1.DaemonSet{}
-		err := cl.Get(ctx, types.NamespacedName{Namespace: OVSHugepagesNamespace, Name: DaemonSetName}, ds)
+		_, err := cs.AppsV1().DaemonSets(OVSHugepagesNamespace).Get(ctx, DaemonSetName, metav1.GetOptions{})
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	})
 
 	It("is a no-op when amount is zero and nothing exists", func() {
-		Expect(ensureDaemonSet(ctx, cl, DefaultHugepagesSize, 0)).To(Succeed())
+		Expect(ensureDaemonSet(ctx, cs, DefaultHugepagesSize, 0)).To(Succeed())
 	})
 })

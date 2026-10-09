@@ -14,7 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package csrapproval
+// Package hostedclient provides a single path for reaching a HyperShift hosted
+// (guest) cluster from the management cluster. It loads the hosted cluster's
+// admin kubeconfig, rewrites its endpoint to the internal service DNS name, and
+// caches one typed clientset per hosted cluster so every reconciler shares the
+// same connection instead of duplicating kubeconfig handling.
+package hostedclient
 
 import (
 	"context"
@@ -23,18 +28,22 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// ClientManager manages hosted cluster client lifecycle
+// ClientManager manages hosted cluster client lifecycle.
 type ClientManager struct {
 	mgmtClient client.Client
-	// mu protects concurrent access to hcClients map
-	// Multiple reconciliations can run concurrently, so we need to protect map access
+	// mu protects concurrent access to hcClients map.
+	// Multiple reconciliations can run concurrently, so we need to protect map access.
 	mu sync.RWMutex
 	// hcClients caches Kubernetes clientsets for hosted clusters to avoid recreating them on every reconciliation.
 	// Each DPFHCPProvisioner creates a hosted cluster with its own API server. This map stores one clientset
@@ -44,7 +53,7 @@ type ClientManager struct {
 	hcClients map[string]*kubernetes.Clientset
 }
 
-// NewClientManager creates a new client manager
+// NewClientManager creates a new client manager.
 func NewClientManager(mgmtClient client.Client) *ClientManager {
 	return &ClientManager{
 		mgmtClient: mgmtClient,
@@ -52,7 +61,7 @@ func NewClientManager(mgmtClient client.Client) *ClientManager {
 	}
 }
 
-// GetHostedClusterClient retrieves or creates a client for the hosted cluster
+// GetHostedClusterClient retrieves or creates a client for the hosted cluster.
 func (cm *ClientManager) GetHostedClusterClient(ctx context.Context, namespace, name string) (*kubernetes.Clientset, error) {
 	key := namespace + "/" + name
 
@@ -78,7 +87,7 @@ func (cm *ClientManager) GetHostedClusterClient(ctx context.Context, namespace, 
 	return clientset, nil
 }
 
-// InvalidateClient removes a cached client (useful when kubeconfig rotates)
+// InvalidateClient removes a cached client (useful when kubeconfig rotates).
 func (cm *ClientManager) InvalidateClient(namespace, name string) {
 	key := namespace + "/" + name
 	cm.mu.Lock()
@@ -86,10 +95,10 @@ func (cm *ClientManager) InvalidateClient(namespace, name string) {
 	cm.mu.Unlock()
 }
 
-// createHostedClusterClient creates a Kubernetes client for the hosted cluster
+// createHostedClusterClient creates a Kubernetes client for the hosted cluster.
 func (cm *ClientManager) createHostedClusterClient(ctx context.Context, namespace, name string) (*kubernetes.Clientset, error) {
 	// Fetch kubeconfig secret
-	kubeconfigData, err := cm.getKubeconfigData(ctx, namespace, name)
+	kubeconfigData, err := cm.GetKubeconfigData(ctx, namespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kubeconfig: %w", err)
 	}
@@ -114,8 +123,8 @@ func (cm *ClientManager) createHostedClusterClient(ctx context.Context, namespac
 		return nil, fmt.Errorf("failed to create rest config from kubeconfig: %w", err)
 	}
 
-	// Set reasonable timeouts for CSR API operations
-	// We use List/Get/UpdateApproval operations (not watches), so a 30s timeout is appropriate
+	// Set reasonable timeouts for hosted-cluster API operations.
+	// Callers use request/response calls (not watches), so a 30s timeout is appropriate.
 	config.Timeout = 30 * time.Second
 	config.QPS = 5
 	config.Burst = 10
@@ -129,8 +138,8 @@ func (cm *ClientManager) createHostedClusterClient(ctx context.Context, namespac
 	return clientset, nil
 }
 
-// getKubeconfigData retrieves the kubeconfig data from the admin secret
-func (cm *ClientManager) getKubeconfigData(ctx context.Context, namespace, name string) ([]byte, error) {
+// GetKubeconfigData retrieves the kubeconfig data from the hosted cluster's admin secret.
+func (cm *ClientManager) GetKubeconfigData(ctx context.Context, namespace, name string) ([]byte, error) {
 	// The kubeconfig secret name follows HyperShift convention: <hostedcluster-name>-admin-kubeconfig
 	secretName := name + "-admin-kubeconfig"
 
@@ -204,11 +213,80 @@ func replaceServerWithInternalEndpoint(kubeconfig *clientcmdapi.Config, hostedCl
 	return nil
 }
 
-// TestConnection verifies the hosted cluster client can connect to the API server
+// TestConnection verifies the hosted cluster client can connect to the API server.
 func TestConnection(ctx context.Context, clientset *kubernetes.Clientset) error {
 	_, err := clientset.Discovery().ServerVersion()
 	if err != nil {
 		return fmt.Errorf("failed to connect to hosted cluster API server: %w", err)
 	}
 	return nil
+}
+
+// OperationResult describes what CreateOrUpdate did to the object.
+type OperationResult string
+
+const (
+	// OperationResultNone means the object already matched the desired state.
+	OperationResultNone OperationResult = "unchanged"
+	// OperationResultCreated means the object did not exist and was created.
+	OperationResultCreated OperationResult = "created"
+	// OperationResultUpdated means the object existed and was updated.
+	OperationResultUpdated OperationResult = "updated"
+)
+
+// CreateOrUpdate is a reusable create-or-update for hosted-cluster callers using the
+// typed clientset. It mirrors controller-runtime's controllerutil.CreateOrUpdate, but
+// is driven by closures so it works with any typed client and resource:
+//
+//   - get fetches the live object into obj (and returns an IsNotFound error if absent),
+//   - create persists obj,
+//   - update persists obj,
+//   - mutate applies the desired state onto obj.
+//
+// When the object is absent it is created. When it exists, mutate runs and, if it
+// changed anything, the object is updated with a retry on write conflict. If mutate
+// leaves the object unchanged no write is issued, so the resourceVersion is preserved.
+func CreateOrUpdate(
+	ctx context.Context,
+	obj runtime.Object,
+	get func(context.Context) error,
+	create func(context.Context) error,
+	update func(context.Context) error,
+	mutate func() error,
+) (OperationResult, error) {
+	result := OperationResultNone
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		getErr := get(ctx)
+		if apierrors.IsNotFound(getErr) {
+			if err := mutate(); err != nil {
+				return err
+			}
+			if err := create(ctx); err != nil {
+				return err
+			}
+			result = OperationResultCreated
+			return nil
+		}
+		if getErr != nil {
+			return getErr
+		}
+
+		before := obj.DeepCopyObject()
+		if err := mutate(); err != nil {
+			return err
+		}
+		if equality.Semantic.DeepEqual(before, obj) {
+			result = OperationResultNone
+			return nil
+		}
+		if err := update(ctx); err != nil {
+			return err
+		}
+		result = OperationResultUpdated
+		return nil
+	})
+	if err != nil {
+		return OperationResultNone, err
+	}
+	return result, nil
 }
