@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -129,8 +130,9 @@ func (m *Manager) ReconcileHugepagesDaemonSet(ctx context.Context, cr *provision
 }
 
 // resolvePauseImage returns the pause/sandbox image for the reservation pods, resolved
-// from the hosted cluster's aarch64 release payload and cached per release image. It
-// returns an error on resolution failure so the caller can requeue and retry.
+// from the release payload and cached per release image. It tries the aarch64-specific
+// release first (DPU nodes are aarch64), then falls back to the source release for CI
+// registries that only publish one architecture.
 func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha1.DPFHCPProvisioner) (string, error) {
 	log := logf.FromContext(ctx)
 	releaseImage := cr.Spec.OCPReleaseImage
@@ -144,28 +146,38 @@ func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha
 		return "", fmt.Errorf("getting pull secret keychain: %w", err)
 	}
 
-	version, err := bfocplookup.ExtractOCPVersion(ctx, releaseImage, keychain)
-	if err != nil {
-		return "", fmt.Errorf("extracting OCP version from %q: %w", releaseImage, err)
+	resolved := m.tryAarch64Release(ctx, releaseImage, keychain)
+	if resolved == "" {
+		resolved, err = m.releaseReader.GetComponentImage(ctx, releaseImage, pausePayloadImage, keychain)
+		if err != nil {
+			return "", fmt.Errorf("resolving pause image from release %q: %w", releaseImage, err)
+		}
 	}
 
+	m.pauseImages[releaseImage] = resolved
+	log.V(1).Info("Resolved hugepages reservation pause image",
+		"releaseImage", releaseImage, "pauseImage", resolved)
+	return resolved, nil
+}
+
+// tryAarch64Release attempts to resolve the pause image from the aarch64-specific
+// release payload. Returns empty string if the aarch64 variant is unavailable.
+func (m *Manager) tryAarch64Release(ctx context.Context, releaseImage string, keychain authn.Keychain) string {
+	version, err := bfocplookup.ExtractOCPVersion(ctx, releaseImage, keychain)
+	if err != nil {
+		return ""
+	}
 	registry := releaseImage
 	if idx := strings.Index(registry, "@"); idx > 0 {
 		registry = registry[:idx]
 	} else if idx := strings.LastIndex(registry, ":"); idx > 0 {
 		registry = registry[:idx]
 	}
-	aarch64Ref := fmt.Sprintf("%s:%s-aarch64", registry, version)
-
-	resolved, err := m.releaseReader.GetComponentImage(ctx, aarch64Ref, pausePayloadImage, keychain)
+	resolved, err := m.releaseReader.GetComponentImage(ctx, fmt.Sprintf("%s:%s-aarch64", registry, version), pausePayloadImage, keychain)
 	if err != nil {
-		return "", fmt.Errorf("resolving pause image from release %q: %w", releaseImage, err)
+		return ""
 	}
-
-	m.pauseImages[releaseImage] = resolved
-	log.V(1).Info("Resolved hugepages reservation pause image from release payload",
-		"releaseImage", releaseImage, "pauseImage", resolved)
-	return resolved, nil
+	return resolved
 }
 
 // ensureNamespace creates the reservation namespace in the hosted cluster if missing.

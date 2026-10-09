@@ -18,15 +18,21 @@ package ovshugepages
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	provisioningv1alpha1 "github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/api/v1alpha1"
 )
 
 // testPauseImage is an arbitrary resolved pause image used to drive the builder and
@@ -84,7 +90,7 @@ var _ = Describe("ensureNamespace", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		cs = fake.NewSimpleClientset()
+		cs = k8sfake.NewSimpleClientset()
 	})
 
 	It("creates the reservation namespace when missing and is idempotent", func() {
@@ -106,7 +112,7 @@ var _ = Describe("ensureDaemonSet", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		cs = fake.NewSimpleClientset(&corev1.Namespace{
+		cs = k8sfake.NewSimpleClientset(&corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{Name: OVSHugepagesNamespace},
 		})
 	})
@@ -162,5 +168,71 @@ var _ = Describe("ensureDaemonSet", func() {
 
 	It("is a no-op when amount is zero and nothing exists", func() {
 		Expect(ensureDaemonSet(ctx, cs, testPauseImage, DefaultHugepagesSize, 0)).To(Succeed())
+	})
+})
+
+type fakeReleaseImageReader struct {
+	image     string
+	err       error
+	callCount int
+}
+
+func (f *fakeReleaseImageReader) GetComponentImage(_ context.Context, _, _ string, _ authn.Keychain) (string, error) {
+	f.callCount++
+	return f.image, f.err
+}
+
+func newTestManager(reader *fakeReleaseImageReader) *Manager {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = provisioningv1alpha1.AddToScheme(scheme)
+	pullSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "pull-secret", Namespace: "test-ns"},
+		Data:       map[string][]byte{".dockerconfigjson": []byte(`{"auths":{}}`)},
+		Type:       corev1.SecretTypeDockerConfigJson,
+	}
+	mgmtClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pullSecret).Build()
+	return &Manager{
+		mgmtClient:    mgmtClient,
+		releaseReader: reader,
+		pauseImages:   make(map[string]string),
+	}
+}
+
+func newTestCR() *provisioningv1alpha1.DPFHCPProvisioner {
+	return &provisioningv1alpha1.DPFHCPProvisioner{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "test-ns"},
+		Spec: provisioningv1alpha1.DPFHCPProvisionerSpec{
+			OCPReleaseImage: "quay.io/openshift-release-dev/ocp-release:4.17.6-x86_64",
+			PullSecretRef:   corev1.LocalObjectReference{Name: "pull-secret"},
+		},
+	}
+}
+
+var _ = Describe("resolvePauseImage", func() {
+	const resolvedPause = "quay.io/openshift4/ose-pod@sha256:abc123"
+
+	It("resolves the pause image from the aarch64 release payload and caches it", func() {
+		reader := &fakeReleaseImageReader{image: resolvedPause}
+		m := newTestManager(reader)
+
+		image, err := m.resolvePauseImage(context.Background(), newTestCR())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(image).To(Equal(resolvedPause))
+
+		image2, err := m.resolvePauseImage(context.Background(), newTestCR())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(image2).To(Equal(resolvedPause))
+		Expect(reader.callCount).To(Equal(1), "second call should hit cache")
+	})
+
+	It("returns an error when both aarch64 and source release fail", func() {
+		reader := &fakeReleaseImageReader{err: fmt.Errorf("registry unreachable")}
+		m := newTestManager(reader)
+
+		_, err := m.resolvePauseImage(context.Background(), newTestCR())
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("registry unreachable"))
+		Expect(reader.callCount).To(Equal(2), "should try aarch64 then fall back to source")
 	})
 })
