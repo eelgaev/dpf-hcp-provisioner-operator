@@ -152,8 +152,8 @@ func (m *Manager) ReconcileHugepagesDaemonSet(ctx context.Context, cr *provision
 }
 
 // resolvePauseImage returns the pause/sandbox image for the reservation pods, resolved
-// from the hosted cluster's OCP release payload and cached per release image. It returns
-// an error on resolution failure (nothing is cached) so the caller can requeue and retry.
+// from the hosted cluster's aarch64 release payload and cached per release image. It
+// returns an error on resolution failure so the caller can requeue and retry.
 func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha1.DPFHCPProvisioner) (string, error) {
 	log := logf.FromContext(ctx)
 	releaseImage := cr.Spec.OCPReleaseImage
@@ -162,21 +162,6 @@ func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha
 		return cached, nil
 	}
 
-	resolved, err := m.resolvePauseImageFromRelease(ctx, cr, releaseImage)
-	if err != nil {
-		return "", fmt.Errorf("resolving pause image from release %q: %w", releaseImage, err)
-	}
-
-	m.pauseImages[releaseImage] = resolved
-	log.V(1).Info("Resolved hugepages reservation pause image from release payload",
-		"releaseImage", releaseImage, "pauseImage", resolved)
-	return resolved, nil
-}
-
-// resolvePauseImageFromRelease extracts the aarch64 pause ("pod") image from the hosted
-// cluster's release payload. DPU nodes are aarch64, so it targets the aarch64 release
-// variant, mirroring how the DPUServiceTemplate reconciler resolves arch-specific images.
-func (m *Manager) resolvePauseImageFromRelease(ctx context.Context, cr *provisioningv1alpha1.DPFHCPProvisioner, releaseImage string) (string, error) {
 	keychain, err := common.KeychainFromPullSecret(ctx, m.mgmtClient, cr.Spec.PullSecretRef.Name, cr.Namespace)
 	if err != nil {
 		return "", fmt.Errorf("getting pull secret keychain: %w", err)
@@ -187,7 +172,6 @@ func (m *Manager) resolvePauseImageFromRelease(ctx context.Context, cr *provisio
 		return "", fmt.Errorf("extracting OCP version from %q: %w", releaseImage, err)
 	}
 
-	// Build the aarch64 release ref from the registry/repo portion and the version.
 	registry := releaseImage
 	if idx := strings.Index(registry, "@"); idx > 0 {
 		registry = registry[:idx]
@@ -196,11 +180,15 @@ func (m *Manager) resolvePauseImageFromRelease(ctx context.Context, cr *provisio
 	}
 	aarch64Ref := fmt.Sprintf("%s:%s-aarch64", registry, version)
 
-	pauseImage, err := m.releaseReader.GetComponentImage(ctx, aarch64Ref, pausePayloadImage, keychain)
+	resolved, err := m.releaseReader.GetComponentImage(ctx, aarch64Ref, pausePayloadImage, keychain)
 	if err != nil {
-		return "", fmt.Errorf("resolving %q image from release %q: %w", pausePayloadImage, aarch64Ref, err)
+		return "", fmt.Errorf("resolving pause image from release %q: %w", releaseImage, err)
 	}
-	return pauseImage, nil
+
+	m.pauseImages[releaseImage] = resolved
+	log.V(1).Info("Resolved hugepages reservation pause image from release payload",
+		"releaseImage", releaseImage, "pauseImage", resolved)
+	return resolved, nil
 }
 
 // ensureNamespace creates the reservation namespace in the hosted cluster if missing.

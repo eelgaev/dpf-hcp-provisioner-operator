@@ -35,11 +35,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// ClientManager manages hosted cluster client lifecycle.
+// ClientManager manages hosted cluster client lifecycle
 type ClientManager struct {
 	mgmtClient client.Client
-	// mu protects concurrent access to hcClients map.
-	// Multiple reconciliations can run concurrently, so we need to protect map access.
+	// mu protects concurrent access to hcClients map
+	// Multiple reconciliations can run concurrently, so we need to protect map access
 	mu sync.RWMutex
 	// hcClients caches Kubernetes clientsets for hosted clusters to avoid recreating them on every reconciliation.
 	// Each DPFHCPProvisioner creates a hosted cluster with its own API server. This map stores one clientset
@@ -49,7 +49,7 @@ type ClientManager struct {
 	hcClients map[string]*kubernetes.Clientset
 }
 
-// NewClientManager creates a new client manager.
+// NewClientManager creates a new client manager
 func NewClientManager(mgmtClient client.Client) *ClientManager {
 	return &ClientManager{
 		mgmtClient: mgmtClient,
@@ -57,7 +57,7 @@ func NewClientManager(mgmtClient client.Client) *ClientManager {
 	}
 }
 
-// GetHostedClusterClient retrieves or creates a client for the hosted cluster.
+// GetHostedClusterClient retrieves or creates a client for the hosted cluster
 func (cm *ClientManager) GetHostedClusterClient(ctx context.Context, namespace, name string) (*kubernetes.Clientset, error) {
 	key := namespace + "/" + name
 
@@ -83,7 +83,7 @@ func (cm *ClientManager) GetHostedClusterClient(ctx context.Context, namespace, 
 	return clientset, nil
 }
 
-// InvalidateClient removes a cached client (useful when kubeconfig rotates).
+// InvalidateClient removes a cached client (useful when kubeconfig rotates)
 func (cm *ClientManager) InvalidateClient(namespace, name string) {
 	key := namespace + "/" + name
 	cm.mu.Lock()
@@ -91,7 +91,7 @@ func (cm *ClientManager) InvalidateClient(namespace, name string) {
 	cm.mu.Unlock()
 }
 
-// createHostedClusterClient creates a Kubernetes client for the hosted cluster.
+// createHostedClusterClient creates a Kubernetes client for the hosted cluster
 func (cm *ClientManager) createHostedClusterClient(ctx context.Context, namespace, name string) (*kubernetes.Clientset, error) {
 	// Fetch kubeconfig secret
 	kubeconfigData, err := cm.GetKubeconfigData(ctx, namespace, name)
@@ -119,7 +119,7 @@ func (cm *ClientManager) createHostedClusterClient(ctx context.Context, namespac
 		return nil, fmt.Errorf("failed to create rest config from kubeconfig: %w", err)
 	}
 
-	// Set reasonable timeouts for hosted-cluster API operations.
+	// Set reasonable timeouts for hosted-cluster API operations
 	// Callers use request/response calls (not watches), so a 30s timeout is appropriate.
 	config.Timeout = 30 * time.Second
 	config.QPS = 5
@@ -134,7 +134,7 @@ func (cm *ClientManager) createHostedClusterClient(ctx context.Context, namespac
 	return clientset, nil
 }
 
-// GetKubeconfigData retrieves the kubeconfig data from the hosted cluster's admin secret.
+// GetKubeconfigData retrieves the kubeconfig data from the hosted cluster's admin secret
 func (cm *ClientManager) GetKubeconfigData(ctx context.Context, namespace, name string) ([]byte, error) {
 	// The kubeconfig secret name follows HyperShift convention: <hostedcluster-name>-admin-kubeconfig
 	secretName := name + "-admin-kubeconfig"
@@ -209,7 +209,7 @@ func replaceServerWithInternalEndpoint(kubeconfig *clientcmdapi.Config, hostedCl
 	return nil
 }
 
-// TestConnection verifies the hosted cluster client can connect to the API server.
+// TestConnection verifies the hosted cluster client can connect to the API server
 func TestConnection(ctx context.Context, clientset *kubernetes.Clientset) error {
 	_, err := clientset.Discovery().ServerVersion()
 	if err != nil {
