@@ -28,15 +28,10 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -221,83 +216,4 @@ func TestConnection(ctx context.Context, clientset *kubernetes.Clientset) error 
 		return fmt.Errorf("failed to connect to hosted cluster API server: %w", err)
 	}
 	return nil
-}
-
-// OperationResult describes what CreateOrUpdate did to the object.
-type OperationResult string
-
-const (
-	// OperationResultNone means the object already matched the desired state.
-	OperationResultNone OperationResult = "unchanged"
-	// OperationResultCreated means the object did not exist and was created.
-	OperationResultCreated OperationResult = "created"
-	// OperationResultUpdated means the object existed and was updated.
-	OperationResultUpdated OperationResult = "updated"
-)
-
-// ResourceClient is the subset of a client-go typed resource client (e.g. the value
-// returned by clientset.CoreV1().Namespaces() or clientset.AppsV1().DaemonSets(ns))
-// that CreateOrUpdate needs. The typed clients satisfy it structurally.
-type ResourceClient[T runtime.Object] interface {
-	Get(ctx context.Context, name string, opts metav1.GetOptions) (T, error)
-	Create(ctx context.Context, obj T, opts metav1.CreateOptions) (T, error)
-	Update(ctx context.Context, obj T, opts metav1.UpdateOptions) (T, error)
-}
-
-// CreateOrUpdate ensures a single named object exists and matches the desired state,
-// using a typed client-go resource client. It mirrors controller-runtime's
-// controllerutil.CreateOrUpdate for hosted-cluster callers that only have a typed
-// clientset, keeping all the get/create/update plumbing in one place so callers supply
-// only a mutate:
-//
-//   - if the object is absent, mutate is applied to desired and it is created;
-//   - if it exists, mutate is applied to the live object and it is updated only when
-//     mutate actually changed something, so an unchanged reconcile issues no write and
-//     preserves the resourceVersion;
-//   - writes are retried on conflict.
-//
-// desired must carry the object's identifying metadata (name/namespace); it is the
-// object created when none exists.
-func CreateOrUpdate[T runtime.Object](
-	ctx context.Context,
-	resourceClient ResourceClient[T],
-	name string,
-	desired T,
-	mutate func(T) error,
-) (OperationResult, error) {
-	result := OperationResultNone
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		live, getErr := resourceClient.Get(ctx, name, metav1.GetOptions{})
-		if apierrors.IsNotFound(getErr) {
-			if err := mutate(desired); err != nil {
-				return err
-			}
-			if _, err := resourceClient.Create(ctx, desired, metav1.CreateOptions{}); err != nil {
-				return err
-			}
-			result = OperationResultCreated
-			return nil
-		}
-		if getErr != nil {
-			return getErr
-		}
-
-		before := live.DeepCopyObject()
-		if err := mutate(live); err != nil {
-			return err
-		}
-		if equality.Semantic.DeepEqual(before, live) {
-			result = OperationResultNone
-			return nil
-		}
-		if _, err := resourceClient.Update(ctx, live, metav1.UpdateOptions{}); err != nil {
-			return err
-		}
-		result = OperationResultUpdated
-		return nil
-	})
-	if err != nil {
-		return OperationResultNone, err
-	}
-	return result, nil
 }

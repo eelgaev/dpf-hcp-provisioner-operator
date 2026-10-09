@@ -205,20 +205,39 @@ func (m *Manager) resolvePauseImageFromRelease(ctx context.Context, cr *provisio
 
 // ensureNamespace creates the reservation namespace in the hosted cluster if missing.
 func ensureNamespace(ctx context.Context, hcClient kubernetes.Interface) error {
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: OVSHugepagesNamespace}}
-	_, err := hostedclient.CreateOrUpdate(ctx, hcClient.CoreV1().Namespaces(), OVSHugepagesNamespace, ns,
-		func(ns *corev1.Namespace) error {
-			if ns.Labels == nil {
-				ns.Labels = map[string]string{}
-			}
-			for k, v := range labels() {
-				ns.Labels[k] = v
-			}
-			return nil
-		},
-	)
+	nsClient := hcClient.CoreV1().Namespaces()
+
+	existing, err := nsClient.Get(ctx, OVSHugepagesNamespace, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   OVSHugepagesNamespace,
+				Labels: labels(),
+			},
+		}
+		if _, err := nsClient.Create(ctx, ns, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("failed to create namespace %s: %w", OVSHugepagesNamespace, err)
+		}
+		return nil
+	}
 	if err != nil {
-		return fmt.Errorf("failed to ensure namespace %s: %w", OVSHugepagesNamespace, err)
+		return fmt.Errorf("failed to get namespace %s: %w", OVSHugepagesNamespace, err)
+	}
+
+	if existing.Labels == nil {
+		existing.Labels = map[string]string{}
+	}
+	needsUpdate := false
+	for k, v := range labels() {
+		if existing.Labels[k] != v {
+			existing.Labels[k] = v
+			needsUpdate = true
+		}
+	}
+	if needsUpdate {
+		if _, err := nsClient.Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("failed to update namespace %s: %w", OVSHugepagesNamespace, err)
+		}
 	}
 	return nil
 }

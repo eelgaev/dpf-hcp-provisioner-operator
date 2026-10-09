@@ -443,7 +443,7 @@ var _ = Describe("DPFHCPProvisioner E2E", Ordered, Label("ocp-required"), func()
 			Expect(podSpec.Containers).To(HaveLen(1))
 
 			container := podSpec.Containers[0]
-			Expect(container.Image).To(Equal("registry.redhat.io/openshift4/ose-pod:latest"))
+			Expect(container.Image).NotTo(BeEmpty(), "the reservation pod image should be resolved from the release payload")
 			hugepagesResource := corev1.ResourceName("hugepages-2Mi")
 			wantReservation := resource.MustParse("500Mi") // 250 pages x 2Mi
 			request := container.Resources.Requests[hugepagesResource]
