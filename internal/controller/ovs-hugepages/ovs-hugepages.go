@@ -27,6 +27,8 @@ import (
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -144,15 +146,48 @@ func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha
 		return "", fmt.Errorf("getting pull secret keychain: %w", err)
 	}
 
-	resolved, err := m.tryAarch64Release(ctx, releaseImage, keychain)
-	if err != nil {
-		return "", fmt.Errorf("resolving aarch64 pause image from release %q: %w", releaseImage, err)
+	var resolved string
+	if isMultiArchRelease(ctx, releaseImage, keychain) {
+		// Multi-arch release: component images listed in the payload are
+		// multi-arch manifest lists, so the kubelet on aarch64 DPU nodes
+		// pulls the correct architecture automatically.
+		resolved, err = m.releaseReader.GetComponentImage(ctx, releaseImage, pausePayloadImage, keychain)
+		if err != nil {
+			return "", fmt.Errorf("resolving pause image from release %q: %w", releaseImage, err)
+		}
+		if resolved == "" {
+			return "", fmt.Errorf("component %q resolved to an empty image from release %q", pausePayloadImage, releaseImage)
+		}
+	} else {
+		resolved, err = m.tryAarch64Release(ctx, releaseImage, keychain)
+		if err != nil {
+			return "", fmt.Errorf("resolving aarch64 pause image from release %q: %w", releaseImage, err)
+		}
 	}
 
 	m.pauseImages[releaseImage] = resolved
 	log.V(1).Info("Resolved hugepages reservation pause image",
 		"releaseImage", releaseImage, "pauseImage", resolved)
 	return resolved, nil
+}
+
+// isMultiArchRelease checks whether a release image is a multi-arch manifest
+// list. Multi-arch releases contain component images that are themselves
+// multi-arch, so the pause image can be resolved directly without constructing
+// an architecture-specific tag.
+func isMultiArchRelease(ctx context.Context, image string, keychain authn.Keychain) bool {
+	if strings.HasSuffix(image, "-multi") {
+		return true
+	}
+	ref, err := name.ParseReference(image)
+	if err != nil {
+		return false
+	}
+	desc, err := remote.Head(ref, remote.WithAuthFromKeychain(keychain), remote.WithContext(ctx))
+	if err != nil {
+		return false
+	}
+	return desc.MediaType.IsIndex()
 }
 
 // tryAarch64Release resolves the pause image from the aarch64-specific release payload.

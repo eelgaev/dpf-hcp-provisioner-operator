@@ -226,6 +226,18 @@ var _ = Describe("resolvePauseImage", func() {
 		Expect(reader.callCount).To(Equal(1), "second call should hit cache")
 	})
 
+	It("resolves the pause image directly from a multi-arch release", func() {
+		reader := &fakeReleaseImageReader{image: resolvedPause}
+		m := newTestManager(reader)
+		cr := newTestCR()
+		cr.Spec.OCPReleaseImage = "quay.io/openshift-release-dev/ocp-release:4.17.6-multi"
+
+		image, err := m.resolvePauseImage(context.Background(), cr)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(image).To(Equal(resolvedPause))
+		Expect(reader.callCount).To(Equal(1))
+	})
+
 	It("returns an error when the aarch64 release lookup fails", func() {
 		reader := &fakeReleaseImageReader{err: fmt.Errorf("registry unreachable")}
 		m := newTestManager(reader)
