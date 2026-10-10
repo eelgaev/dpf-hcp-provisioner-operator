@@ -226,13 +226,13 @@ var _ = Describe("resolvePauseImage", func() {
 		Expect(reader.callCount).To(Equal(1), "second call should hit cache")
 	})
 
-	It("returns an error when both aarch64 and source release fail", func() {
+	It("returns an error when the aarch64 release lookup fails", func() {
 		reader := &fakeReleaseImageReader{err: fmt.Errorf("registry unreachable")}
 		m := newTestManager(reader)
 
 		_, err := m.resolvePauseImage(context.Background(), newTestCR())
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("registry unreachable"))
-		Expect(reader.callCount).To(Equal(2), "should try aarch64 then fall back to source")
+		Expect(reader.callCount).To(Equal(1), "must not fall back to a potentially non-aarch64 release")
 	})
 })

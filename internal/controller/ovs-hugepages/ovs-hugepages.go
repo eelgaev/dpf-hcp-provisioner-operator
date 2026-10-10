@@ -29,7 +29,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -130,9 +129,8 @@ func (m *Manager) ReconcileHugepagesDaemonSet(ctx context.Context, cr *provision
 }
 
 // resolvePauseImage returns the pause/sandbox image for the reservation pods, resolved
-// from the release payload and cached per release image. It tries the aarch64-specific
-// release first (DPU nodes are aarch64), then falls back to the source release for CI
-// registries that only publish one architecture.
+// from the aarch64-specific release payload and cached per release image. DPU nodes are
+// aarch64, so resolution fails rather than risking an image for another architecture.
 func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha1.DPFHCPProvisioner) (string, error) {
 	log := logf.FromContext(ctx)
 	releaseImage := cr.Spec.OCPReleaseImage
@@ -146,12 +144,9 @@ func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha
 		return "", fmt.Errorf("getting pull secret keychain: %w", err)
 	}
 
-	resolved := m.tryAarch64Release(ctx, releaseImage, keychain)
-	if resolved == "" {
-		resolved, err = m.releaseReader.GetComponentImage(ctx, releaseImage, pausePayloadImage, keychain)
-		if err != nil {
-			return "", fmt.Errorf("resolving pause image from release %q: %w", releaseImage, err)
-		}
+	resolved, err := m.tryAarch64Release(ctx, releaseImage, keychain)
+	if err != nil {
+		return "", fmt.Errorf("resolving aarch64 pause image from release %q: %w", releaseImage, err)
 	}
 
 	m.pauseImages[releaseImage] = resolved
@@ -160,12 +155,11 @@ func (m *Manager) resolvePauseImage(ctx context.Context, cr *provisioningv1alpha
 	return resolved, nil
 }
 
-// tryAarch64Release attempts to resolve the pause image from the aarch64-specific
-// release payload. Returns empty string if the aarch64 variant is unavailable.
-func (m *Manager) tryAarch64Release(ctx context.Context, releaseImage string, keychain authn.Keychain) string {
+// tryAarch64Release resolves the pause image from the aarch64-specific release payload.
+func (m *Manager) tryAarch64Release(ctx context.Context, releaseImage string, keychain authn.Keychain) (string, error) {
 	version, err := bfocplookup.ExtractOCPVersion(ctx, releaseImage, keychain)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("extracting OCP version: %w", err)
 	}
 	registry := releaseImage
 	if idx := strings.Index(registry, "@"); idx > 0 {
@@ -173,48 +167,34 @@ func (m *Manager) tryAarch64Release(ctx context.Context, releaseImage string, ke
 	} else if idx := strings.LastIndex(registry, ":"); idx > 0 {
 		registry = registry[:idx]
 	}
-	resolved, err := m.releaseReader.GetComponentImage(ctx, fmt.Sprintf("%s:%s-aarch64", registry, version), pausePayloadImage, keychain)
+	aarch64Release := fmt.Sprintf("%s:%s-aarch64", registry, version)
+	resolved, err := m.releaseReader.GetComponentImage(ctx, aarch64Release, pausePayloadImage, keychain)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("reading release %q: %w", aarch64Release, err)
 	}
-	return resolved
+	if resolved == "" {
+		return "", fmt.Errorf("component %q resolved to an empty image from release %q", pausePayloadImage, aarch64Release)
+	}
+	return resolved, nil
 }
 
 // ensureNamespace creates the reservation namespace in the hosted cluster if missing.
 func ensureNamespace(ctx context.Context, hcClient kubernetes.Interface) error {
-	nsClient := hcClient.CoreV1().Namespaces()
-
-	existing, err := nsClient.Get(ctx, OVSHugepagesNamespace, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		ns := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   OVSHugepagesNamespace,
-				Labels: labels(),
-			},
-		}
-		if _, err := nsClient.Create(ctx, ns, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("failed to create namespace %s: %w", OVSHugepagesNamespace, err)
-		}
-		return nil
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: OVSHugepagesNamespace},
 	}
+	_, err := hostedclient.CreateOrUpdate(ctx, hcClient.CoreV1().Namespaces(), ns,
+		func(ns *corev1.Namespace) error {
+			if ns.Labels == nil {
+				ns.Labels = map[string]string{}
+			}
+			for k, v := range labels() {
+				ns.Labels[k] = v
+			}
+			return nil
+		})
 	if err != nil {
-		return fmt.Errorf("failed to get namespace %s: %w", OVSHugepagesNamespace, err)
-	}
-
-	if existing.Labels == nil {
-		existing.Labels = map[string]string{}
-	}
-	needsUpdate := false
-	for k, v := range labels() {
-		if existing.Labels[k] != v {
-			existing.Labels[k] = v
-			needsUpdate = true
-		}
-	}
-	if needsUpdate {
-		if _, err := nsClient.Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
-			return fmt.Errorf("failed to update namespace %s: %w", OVSHugepagesNamespace, err)
-		}
+		return fmt.Errorf("failed to ensure namespace %s: %w", OVSHugepagesNamespace, err)
 	}
 	return nil
 }
@@ -235,37 +215,29 @@ func ensureDaemonSet(ctx context.Context, hcClient kubernetes.Interface, image, 
 	}
 
 	desired := buildDaemonSet(image, size, amount)
+	result, err := hostedclient.CreateOrUpdate(ctx, dsClient, desired,
+		func(ds *appsv1.DaemonSet) error {
+			ds.Labels = desired.Labels
+			ds.Spec.Template = desired.Spec.Template
+			return nil
+		})
+	if err != nil {
+		return fmt.Errorf("failed to ensure DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
+	}
 
-	existing, err := dsClient.Get(ctx, DaemonSetName, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		if _, err := dsClient.Create(ctx, desired, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("failed to create DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
-		}
+	switch result {
+	case hostedclient.OperationResultCreated:
 		log.V(1).Info("Created hugepages reservation DaemonSet in hosted cluster",
 			"namespace", OVSHugepagesNamespace, "name", DaemonSetName,
 			"hugepagesSize", size, "hugepagesCount", amount)
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("failed to get DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
-	}
-
-	before := existing.DeepCopy()
-	existing.Labels = desired.Labels
-	existing.Spec.Template = desired.Spec.Template
-
-	if equality.Semantic.DeepEqual(before, existing) {
+	case hostedclient.OperationResultUpdated:
+		log.V(1).Info("Updated hugepages reservation DaemonSet in hosted cluster (drift corrected)",
+			"namespace", OVSHugepagesNamespace, "name", DaemonSetName,
+			"hugepagesSize", size, "hugepagesCount", amount)
+	default:
 		log.V(1).Info("Hugepages reservation DaemonSet up to date in hosted cluster",
 			"namespace", OVSHugepagesNamespace, "name", DaemonSetName)
-		return nil
 	}
-
-	if _, err := dsClient.Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("failed to update DaemonSet %s/%s: %w", OVSHugepagesNamespace, DaemonSetName, err)
-	}
-	log.V(1).Info("Updated hugepages reservation DaemonSet in hosted cluster (drift corrected)",
-		"namespace", OVSHugepagesNamespace, "name", DaemonSetName,
-		"hugepagesSize", size, "hugepagesCount", amount)
 	return nil
 }
 
