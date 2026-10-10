@@ -58,7 +58,7 @@ type DPFHCPProvisionerConfigSpec struct {
 	// OVSHugepagesSize is the hugepage size reserved on every hosted-cluster node by
 	// the OVS hugepages reservation DaemonSet. It selects the Kubernetes extended
 	// resource "hugepages-<size>" (e.g. "2Mi" -> hugepages-2Mi).
-	// +kubebuilder:validation:Pattern=`^[0-9]+(Ki|Mi|Gi)$`
+	// +kubebuilder:validation:Enum="1Gi";"2Mi";"32Mi";"64Ki"
 	// +kubebuilder:default="2Mi"
 	// +optional
 	OVSHugepagesSize string `json:"ovsHugepagesSize,omitempty"`

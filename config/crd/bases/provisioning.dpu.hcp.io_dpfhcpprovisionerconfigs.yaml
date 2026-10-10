@@ -98,7 +98,11 @@ spec:
                   OVSHugepagesSize is the hugepage size reserved on every hosted-cluster node by
                   the OVS hugepages reservation DaemonSet. It selects the Kubernetes extended
                   resource "hugepages-<size>" (e.g. "2Mi" -> hugepages-2Mi).
-                pattern: ^[0-9]+(Ki|Mi|Gi)$
+                enum:
+                - 1Gi
+                - 2Mi
+                - 32Mi
+                - 64Ki
                 type: string
             type: object
         type: object
