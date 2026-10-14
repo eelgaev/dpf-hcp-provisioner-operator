@@ -27,8 +27,6 @@ import (
 	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/authn"
-	cranename "github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 	configv1 "github.com/openshift/api/config/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -348,33 +346,9 @@ func (m *DPUServiceTemplateManager) getOCPVersionFromClusterVersion(ctx context.
 	return cv.Status.Desired.Version, cv.Status.Desired.Image, nil
 }
 
-// isMultiArchReleaseImage queries the registry to check whether the release
-// image is a manifest list (multi-arch) or a single-arch image. Uses HEAD
-// (no image download) so the check is lightweight.
-func (m *DPUServiceTemplateManager) isMultiArchReleaseImage(ctx context.Context, image string, keychain authn.Keychain) bool {
-	if strings.HasSuffix(image, "-multi") {
-		return true
-	}
-	ref, err := cranename.ParseReference(image)
-	if err != nil {
-		return false
-	}
-	desc, err := remote.Head(ref, remote.WithAuthFromKeychain(keychain), remote.WithContext(ctx))
-	if err != nil {
-		return false
-	}
-	return desc.MediaType.IsIndex()
-}
-
 // resolveARM64OVNImage extracts the aarch64 ovn-kubernetes image from the release payload.
 func (m *DPUServiceTemplateManager) resolveARM64OVNImage(ctx context.Context, releaseImage, ocpVersion string) (repo, tag string, err error) {
-	registry := releaseImage
-	if idx := strings.Index(registry, "@"); idx > 0 {
-		registry = registry[:idx]
-	} else if idx := strings.LastIndex(registry, ":"); idx > 0 {
-		registry = registry[:idx]
-	}
-	aarch64Ref := fmt.Sprintf("%s:%s-aarch64", registry, ocpVersion)
+	aarch64Ref := common.Aarch64ReleaseImage(releaseImage, ocpVersion)
 
 	keychain, err := m.getClusterPullSecretKeychain(ctx)
 	if err != nil {
@@ -448,7 +422,7 @@ func (m *DPUServiceTemplateManager) ensureOVNTemplate(ctx context.Context, names
 
 	var ovnkTemplateInfo ovnTemplateInfo
 	if CNOOVNKDaemonSetImageChanged {
-		if m.isMultiArchReleaseImage(ctx, releaseImage, keychain) {
+		if common.IsMultiArchReleaseImage(ctx, releaseImage, keychain) {
 			log.Info("Multi-arch release image detected, using management cluster OVN image directly", "image", currentOVNKImage)
 			repo, tag, err := splitImage(currentOVNKImage)
 			if err != nil {
