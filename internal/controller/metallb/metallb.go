@@ -88,7 +88,7 @@ func (m *MetalLBManager) ConfigureMetalLB(ctx context.Context, provisioner *prov
 
 		return ctrl.Result{}, err
 	}
-	log.Info("IPAddressPool configured successfully", "name", provisioner.Name, "namespace", common.OpenshiftOperatorsNamespace)
+	log.Info("IPAddressPool configured successfully", "name", provisioner.Name, "namespace", common.MetalLBNamespace)
 
 	// Configure L2Advertisement
 	log.V(1).Info("Configuring L2Advertisement")
@@ -106,7 +106,7 @@ func (m *MetalLBManager) ConfigureMetalLB(ctx context.Context, provisioner *prov
 
 		return ctrl.Result{}, err
 	}
-	log.Info("L2Advertisement configured successfully", "name", fmt.Sprintf("advertise-%s", provisioner.Name), "namespace", common.OpenshiftOperatorsNamespace)
+	log.Info("L2Advertisement configured successfully", "name", fmt.Sprintf("advertise-%s", provisioner.Name), "namespace", common.MetalLBNamespace)
 
 	// Update condition to True - both resources successfully configured
 	if err := m.setCondition(ctx, provisioner, metav1.ConditionTrue, "MetalLBReady",
@@ -164,7 +164,7 @@ func (m *MetalLBManager) ensureIPAddressPool(ctx context.Context, provisioner *p
 	pool := &metallbv1beta1.IPAddressPool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      provisioner.Name,
-			Namespace: common.OpenshiftOperatorsNamespace,
+			Namespace: common.MetalLBNamespace,
 		},
 	}
 
@@ -224,7 +224,7 @@ func (m *MetalLBManager) ensureL2Advertisement(ctx context.Context, provisioner 
 	advert := &metallbv1beta1.L2Advertisement{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("advertise-%s", provisioner.Name),
-			Namespace: common.OpenshiftOperatorsNamespace,
+			Namespace: common.MetalLBNamespace,
 		},
 	}
 
