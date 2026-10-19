@@ -43,6 +43,11 @@ func NewProvider(isZeroTrust bool) *content.EmbeddedProvider {
 				ContentSource: f(oobNetFile),
 			},
 			{
+				Path:          "/etc/NetworkManager/conf.d/10-oob-net0.conf",
+				Mode:          0644,
+				ContentSource: f("10-oob-net0.conf"),
+			},
+			{
 				Path:          "/usr/local/bin/dpuagent-client.py",
 				Mode:          0755,
 				ContentSource: f("dpuagent-client.py"),
