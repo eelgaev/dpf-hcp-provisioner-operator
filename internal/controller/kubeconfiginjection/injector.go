@@ -19,6 +19,7 @@ package kubeconfiginjection
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -46,6 +47,9 @@ const (
 	// DestinationKubeconfigSecretKey is the key name for kubeconfig data in the destination secret (expected by DPF operator)
 	DestinationKubeconfigSecretKey = "super-admin.conf"
 )
+
+// errDPUClusterNotFound signals the referenced DPUCluster CR does not exist (deleted or not created yet).
+var errDPUClusterNotFound = errors.New("dpu cluster not found")
 
 // KubeconfigInjector handles kubeconfig injection from HostedCluster to DPUCluster
 type KubeconfigInjector struct {
@@ -90,6 +94,18 @@ func (ki *KubeconfigInjector) InjectKubeconfig(ctx context.Context, provisioner 
 	// Step 2: Check injection state
 	secretExists, dpuClusterUpdated, err := ki.checkInjectionState(ctx, provisioner)
 	if err != nil {
+		if errors.Is(err, errDPUClusterNotFound) {
+			ref := provisioner.Spec.DPUClusterRef
+			log.Info("DPUCluster not found, skipping kubeconfig injection until recreated",
+				"dpuClusterNamespace", ref.Namespace,
+				"dpuClusterName", ref.Name)
+			msg := fmt.Sprintf("Waiting for DPUCluster %s/%s", ref.Namespace, ref.Name)
+			if condErr := ki.setCondition(ctx, provisioner, metav1.ConditionFalse, provisioningv1alpha1.ReasonKubeConfigPending, msg); condErr != nil {
+				log.Error(condErr, "Failed to update condition")
+				return ctrl.Result{}, condErr
+			}
+			return ctrl.Result{}, nil
+		}
 		log.Error(err, "Failed to check injection state")
 		if condErr := ki.setCondition(ctx, provisioner, metav1.ConditionFalse, provisioningv1alpha1.ReasonKubeConfigInjectionFailed,
 			fmt.Sprintf("Failed to check injection state: %v", err)); condErr != nil {
@@ -235,7 +251,7 @@ func (ki *KubeconfigInjector) checkInjectionState(ctx context.Context, provision
 	dpuClusterErr := ki.Client.Get(ctx, dpuClusterKey, dpuCluster)
 	if dpuClusterErr != nil {
 		if apierrors.IsNotFound(dpuClusterErr) {
-			return secretExists, false, fmt.Errorf("DPUCluster %s/%s not found", dpuClusterNamespace, provisioner.Spec.DPUClusterRef.Name)
+			return secretExists, false, errDPUClusterNotFound
 		}
 		return secretExists, false, fmt.Errorf("failed to get DPUCluster: %w", dpuClusterErr)
 	}
