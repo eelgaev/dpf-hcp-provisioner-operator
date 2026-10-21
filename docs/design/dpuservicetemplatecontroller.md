@@ -39,7 +39,8 @@ DPUClusterRef.
 Chart versions and image repos are **not** user-configurable. These values are
 difficult for users to determine on their own and they move in lockstep with
 DPF releases, so they are maintained in a JSON file (`dpuservicetemplate_values.json`)
-keyed by DPF **major.minor** version (e.g. `"26.4"`). At runtime, the controller reads
+keyed by DPF **major.minor** version (e.g. `"26.4"`), plus a `"default"` row for versions
+without a dedicated entry. At runtime, the controller reads
 `DPFOperatorConfig.status.version` from
 `dpfoperatorconfig/dpf-operator-system`, extracts the major.minor version, and looks
 up the corresponding defaults.

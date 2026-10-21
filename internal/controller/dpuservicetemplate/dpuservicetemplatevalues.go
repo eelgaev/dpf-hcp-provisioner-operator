@@ -66,6 +66,10 @@ type DPUServiceTemplateValues struct {
 	ImagePullSecret string            `json:"-"`
 }
 
+// embeddedDefaultDPFVersionKey is the JSON map key for DPUServiceTemplate defaults used when the
+// running DPF major.minor version has no dedicated entry (e.g. DPF master or a new GA minor).
+const embeddedDefaultDPFVersionKey = "default"
+
 // dpfVersionToDPUServiceTemplateValuesMap maps DPF major.minor versions (e.g. "26.4") to their corresponding DPUServiceTemplate values.
 // When a new DPF version is released with different chart/image versions, add a new entry to dpuservicetemplate_values.json.
 var dpfVersionToDPUServiceTemplateValuesMap map[string]DPUServiceTemplateValues
@@ -76,19 +80,30 @@ func init() {
 	}
 }
 
-// DPUServiceTemplateValuesForVersion returns the DPUServiceTemplateValues for the given DPF major.minor version
-// (e.g., "26.4").
+// DPUServiceTemplateValuesForVersion returns embedded DPUServiceTemplateValues for the given DPF
+// major.minor version (e.g. "26.4"). Versions without a dedicated entry use the "default" row.
 func DPUServiceTemplateValuesForVersion(version string) (*DPUServiceTemplateValues, error) {
-	dpuServiceTemplateValues, ok := dpfVersionToDPUServiceTemplateValuesMap[version]
-	if !ok {
-		supported := make([]string, 0, len(dpfVersionToDPUServiceTemplateValuesMap))
-		for k := range dpfVersionToDPUServiceTemplateValuesMap {
-			supported = append(supported, k)
-		}
-		return nil, fmt.Errorf("unsupported DPF version %q, supported: %v", version, supported)
+	return resolveEmbeddedDPUServiceTemplateValues(context.Background(), version)
+}
+
+// resolveEmbeddedDPUServiceTemplateValues returns embedded values for version.
+// Versions without a dedicated entry use the "default" row.
+func resolveEmbeddedDPUServiceTemplateValues(ctx context.Context, version string) (*DPUServiceTemplateValues, error) {
+	if version == "" {
+		return nil, fmt.Errorf("unsupported DPF version %q", version)
 	}
 
-	return &dpuServiceTemplateValues, nil
+	if dpuServiceTemplateValues, ok := dpfVersionToDPUServiceTemplateValuesMap[version]; ok {
+		return &dpuServiceTemplateValues, nil
+	}
+
+	if dpuServiceTemplateValues, ok := dpfVersionToDPUServiceTemplateValuesMap[embeddedDefaultDPFVersionKey]; ok {
+		logf.FromContext(ctx).Info("No embedded DPUServiceTemplate defaults for DPF version; using default",
+			"requestedVersion", version)
+		return &dpuServiceTemplateValues, nil
+	}
+
+	return nil, fmt.Errorf("unsupported DPF version %q: no embedded entry and no %q defaults", version, embeddedDefaultDPFVersionKey)
 }
 
 const overridesConfigMapName = "dpuservicetemplate-overrides"

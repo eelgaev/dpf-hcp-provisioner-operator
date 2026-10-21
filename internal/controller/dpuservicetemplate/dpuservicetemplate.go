@@ -182,10 +182,11 @@ func (m *DPUServiceTemplateManager) getDPUServiceTemplateValuesForCurrentDPF(ctx
 }
 
 func (m *DPUServiceTemplateManager) getDPUServiceTemplateValues(ctx context.Context, version string) (*DPUServiceTemplateValues, error) {
-	values, err := DPUServiceTemplateValuesForVersion(version)
+	values, err := resolveEmbeddedDPUServiceTemplateValues(ctx, version)
 	if err != nil {
 		return nil, err
 	}
+
 	if err := applyOverridesFromConfigMap(ctx, m.apiReader, m.OperatorNamespace, version, values); err != nil {
 		return nil, fmt.Errorf("applying overrides from configmap: %w", err)
 	}
