@@ -572,6 +572,56 @@ var _ = Describe("Kubeconfig Injection Reconciler", func() {
 		})
 	})
 
+	Describe("Skip When DPUCluster Not Found", func() {
+		It("should skip injection without error when DPUCluster is missing", func() {
+			provisioner := &provisioningv1alpha1.DPFHCPProvisioner{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-provisioner",
+					Namespace: "test-ns",
+				},
+				Spec: provisioningv1alpha1.DPFHCPProvisionerSpec{
+					DPUClusterRef: provisioningv1alpha1.DPUClusterReference{
+						Name:      "test-dpu",
+						Namespace: "dpu-ns",
+					},
+				},
+				Status: provisioningv1alpha1.DPFHCPProvisionerStatus{
+					HostedClusterRef: &corev1.ObjectReference{
+						Name:      "test-provisioner",
+						Namespace: "test-ns",
+					},
+				},
+			}
+
+			hcSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-provisioner-admin-kubeconfig",
+					Namespace: "test-ns",
+				},
+				Data: map[string][]byte{
+					SourceKubeconfigSecretKey: []byte("fake-kubeconfig-data"),
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(provisioner, hcSecret).
+				WithStatusSubresource(provisioner).
+				Build()
+
+			injector = NewKubeconfigInjector(fakeClient, recorder)
+
+			_, err := injector.InjectKubeconfig(ctx, provisioner)
+			Expect(err).NotTo(HaveOccurred())
+
+			cond := findCondition(provisioner.Status.Conditions)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(provisioningv1alpha1.ReasonKubeConfigPending))
+			Expect(cond.Message).To(ContainSubstring("dpu-ns/test-dpu"))
+		})
+	})
+
 	Describe("Skip When HostedCluster Not Created", func() {
 		It("should skip injection when HostedClusterRef is nil", func() {
 			// Given: DPFHCPProvisioner without HostedCluster created yet
