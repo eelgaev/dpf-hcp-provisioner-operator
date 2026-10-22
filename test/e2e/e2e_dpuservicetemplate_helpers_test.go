@@ -82,8 +82,12 @@ func setDPFOperatorConfigVersion(version string) {
 				Namespace: dpfOperatorConfigNamespace,
 			},
 			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeHostTrusted,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: &bfbPVCName,
+					InstallInterface: &operatorv1.ProvisioningInstallInterface{
+						InstallViaHostAgent: &operatorv1.InstallViaHostAgent{},
+					},
 				},
 				Networking: &operatorv1.Networking{
 					ControlPlaneMTU: &mtu,

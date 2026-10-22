@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -186,8 +187,8 @@ func newTestDPUDeployment(name, namespace string) *dpuservicev1alpha1.DPUDeploym
 		},
 		Spec: dpuservicev1alpha1.DPUDeploymentSpec{
 			DPUs: dpuservicev1alpha1.DPUs{
-				BFB:    "bfb",
-				Flavor: "flavor",
+				BFB:    ptr.To("bfb"),
+				Flavor: ptr.To("flavor"),
 			},
 		},
 	}
