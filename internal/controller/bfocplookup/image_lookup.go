@@ -72,9 +72,14 @@ type TagLister interface {
 // RemoteTagLister is the production implementation that lists tags from a real container registry
 type RemoteTagLister struct{}
 
-// ListTags lists all tags in the repository via the registry tags list API
+// ListTags lists all tags in the repository via the registry tags list API.
+// Errors are returned as *RegistryAuthError or *RegistryAccessError.
 func (r *RemoteTagLister) ListTags(ctx context.Context, repo name.Repository, keychain authn.Keychain) ([]string, error) {
-	return remote.List(repo, remote.WithAuthFromKeychain(keychain), remote.WithContext(ctx))
+	tags, err := remote.List(repo, remote.WithAuthFromKeychain(keychain), remote.WithContext(ctx))
+	if err != nil {
+		return nil, registryError(repo.String(), err)
+	}
+	return tags, nil
 }
 
 // LabelFetcher abstracts fetching the config labels of a single image
@@ -86,23 +91,24 @@ type LabelFetcher interface {
 // labels from a real container registry
 type RemoteLabelFetcher struct{}
 
-// FetchLabels fetches the image config (manifest + config blob) and returns its labels
+// FetchLabels fetches the image config (manifest + config blob) and returns its labels.
+// Errors are returned as *RegistryAuthError or *RegistryAccessError.
 func (f *RemoteLabelFetcher) FetchLabels(ctx context.Context, image string, keychain authn.Keychain) (map[string]string, error) {
 	ref, err := name.ParseReference(image)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse image reference %s: %w", image, err)
+		return nil, registryError(image, fmt.Errorf("failed to parse image reference %s: %w", image, err))
 	}
 	desc, err := remote.Get(ref, remote.WithAuthFromKeychain(keychain), remote.WithContext(ctx))
 	if err != nil {
-		return nil, err
+		return nil, registryError(image, err)
 	}
 	img, err := desc.Image()
 	if err != nil {
-		return nil, err
+		return nil, registryError(image, err)
 	}
 	cfg, err := img.ConfigFile()
 	if err != nil {
-		return nil, err
+		return nil, registryError(image, err)
 	}
 	return cfg.Config.Labels, nil
 }
@@ -312,16 +318,7 @@ func (r *ImageLookup) selectImageTag(ctx context.Context, repository, ocpVersion
 
 	tags, err := r.TagLister.ListTags(ctx, repo, keychain)
 	if err != nil {
-		if isAuthError(err) {
-			return "", &RegistryAuthError{
-				Repository: repository,
-				Err:        err,
-			}
-		}
-		return "", &RegistryAccessError{
-			Repository: repository,
-			Err:        err,
-		}
+		return "", err
 	}
 
 	tag, found := findBlueFieldOCPLayerTag(tags, ocpVersion, docaMajorMinor)
@@ -348,16 +345,7 @@ func (r *ImageLookup) selectImageTag(ctx context.Context, repository, ocpVersion
 func (r *ImageLookup) verifyImageLabels(ctx context.Context, image, ocpVersion, docaMajorMinor string, keychain authn.Keychain) error {
 	labels, err := r.Labels.FetchLabels(ctx, image, keychain)
 	if err != nil {
-		if isAuthError(err) {
-			return &RegistryAuthError{
-				Repository: image,
-				Err:        err,
-			}
-		}
-		return &RegistryAccessError{
-			Repository: image,
-			Err:        err,
-		}
+		return err
 	}
 
 	if ocp, ok := labels[OCPLayerOCPVersionLabel]; ok && ocp != ocpVersion {
@@ -428,6 +416,15 @@ func findBlueFieldOCPLayerTag(tags []string, ocpVersion, docaMajorMinor string) 
 		}
 	}
 	return bestTag, bestTag != ""
+}
+
+// registryError wraps an error from a registry call as *RegistryAuthError or
+// *RegistryAccessError, depending on whether it is an auth failure.
+func registryError(repository string, err error) error {
+	if isAuthError(err) {
+		return &RegistryAuthError{Repository: repository, Err: err}
+	}
+	return &RegistryAccessError{Repository: repository, Err: err}
 }
 
 // isAuthError checks if an error is an authentication/authorization error

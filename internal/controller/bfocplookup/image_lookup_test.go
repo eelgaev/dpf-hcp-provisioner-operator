@@ -203,7 +203,7 @@ var _ = Describe("BlueField OCP Layer Image Lookup", func() {
 
 		Context("When registry returns an auth error", func() {
 			It("should return RegistryAuthError", func() {
-				lookup.TagLister = &fakeTagLister{err: fmt.Errorf("UNAUTHORIZED: authentication required")}
+				lookup.TagLister = &fakeTagLister{err: registryError(testRepository, fmt.Errorf("UNAUTHORIZED: authentication required"))}
 				_, err := lookup.selectImageTag(context.Background(), testRepository, "4.22.11", "3.4", authn.DefaultKeychain)
 				Expect(err).To(HaveOccurred())
 				var authErr *RegistryAuthError
@@ -213,7 +213,7 @@ var _ = Describe("BlueField OCP Layer Image Lookup", func() {
 
 		Context("When registry returns a transient error", func() {
 			It("should return RegistryAccessError", func() {
-				lookup.TagLister = &fakeTagLister{err: fmt.Errorf("connection refused")}
+				lookup.TagLister = &fakeTagLister{err: registryError(testRepository, fmt.Errorf("connection refused"))}
 				_, err := lookup.selectImageTag(context.Background(), testRepository, "4.22.11", "3.4", authn.DefaultKeychain)
 				Expect(err).To(HaveOccurred())
 				var accessErr *RegistryAccessError
@@ -274,7 +274,7 @@ var _ = Describe("BlueField OCP Layer Image Lookup", func() {
 		Context("When label fetching fails with a transient error", func() {
 			It("should return RegistryAccessError", func() {
 				lookup.TagLister = &fakeTagLister{tags: sampleRegistryTags}
-				lookup.Labels = &fakeLabelFetcher{err: fmt.Errorf("connection refused")}
+				lookup.Labels = &fakeLabelFetcher{err: registryError(testRepository, fmt.Errorf("connection refused"))}
 				_, err := lookup.selectImageTag(context.Background(), testRepository, "4.22.11", "3.4", authn.DefaultKeychain)
 				Expect(err).To(HaveOccurred())
 				var accessErr *RegistryAccessError
@@ -285,7 +285,7 @@ var _ = Describe("BlueField OCP Layer Image Lookup", func() {
 		Context("When label fetching fails with an auth error", func() {
 			It("should return RegistryAuthError", func() {
 				lookup.TagLister = &fakeTagLister{tags: sampleRegistryTags}
-				lookup.Labels = &fakeLabelFetcher{err: fmt.Errorf("UNAUTHORIZED: authentication required")}
+				lookup.Labels = &fakeLabelFetcher{err: registryError(testRepository, fmt.Errorf("UNAUTHORIZED: authentication required"))}
 				_, err := lookup.selectImageTag(context.Background(), testRepository, "4.22.11", "3.4", authn.DefaultKeychain)
 				Expect(err).To(HaveOccurred())
 				var authErr *RegistryAuthError
@@ -437,7 +437,7 @@ var _ = Describe("BlueField OCP Layer Image Lookup", func() {
 		})
 
 		It("should retry when the registry is unreachable", func() {
-			lookup.TagLister = &fakeTagLister{err: fmt.Errorf("connection refused")}
+			lookup.TagLister = &fakeTagLister{err: registryError(testRepository, fmt.Errorf("connection refused"))}
 			_, err := lookup.LookupBlueFieldOCPLayerImage(context.Background(), cr)
 			Expect(err).To(HaveOccurred())
 
@@ -463,7 +463,7 @@ var _ = Describe("BlueField OCP Layer Image Lookup", func() {
 		})
 
 		It("should retry when label fetching is unreachable", func() {
-			lookup.Labels = &fakeLabelFetcher{err: fmt.Errorf("connection refused")}
+			lookup.Labels = &fakeLabelFetcher{err: registryError(testRepository, fmt.Errorf("connection refused"))}
 			_, err := lookup.LookupBlueFieldOCPLayerImage(context.Background(), cr)
 			Expect(err).To(HaveOccurred())
 
@@ -613,6 +613,18 @@ var _ = Describe("BlueField OCP Layer Image Lookup", func() {
 				Expect(err.Error()).To(ContainSubstring("4.19.0-ec.5"))
 				Expect(err.Error()).To(ContainSubstring("empty"))
 			})
+		})
+	})
+
+	Describe("registryError", func() {
+		It("should wrap auth failures as RegistryAuthError", func() {
+			var authErr *RegistryAuthError
+			Expect(registryError(testRepository, fmt.Errorf("UNAUTHORIZED: authentication required"))).To(BeAssignableToTypeOf(authErr))
+		})
+
+		It("should wrap other failures as RegistryAccessError", func() {
+			var accessErr *RegistryAccessError
+			Expect(registryError(testRepository, fmt.Errorf("connection refused"))).To(BeAssignableToTypeOf(accessErr))
 		})
 	})
 
