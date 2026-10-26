@@ -30,22 +30,13 @@ import (
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/dpfdefaults"
 )
 
-// Template value types are the JSON schema in internal/dpfdefaults. Aliased
-// here so the controller keeps its existing names.
-type (
-	OVNTemplateValues        = dpfdefaults.OVNTemplateValues
-	DTSTemplateValues        = dpfdefaults.DTSTemplateValues
-	HBNTemplateValues        = dpfdefaults.HBNTemplateValues
-	DPUServiceTemplateValues = dpfdefaults.DPUServiceTemplateValues
-)
-
 const overridesConfigMapName = "dpuservicetemplate-overrides"
 
 // applyOverridesFromConfigMap reads the [[overridesConfigMapName]] ConfigMap
 // from the operator namespace and merges any matching version overrides
 // on top of the given embedded values. If the ConfigMap doesn't
 // exist, the embedded values are returned unchanged.
-func applyOverridesFromConfigMap(ctx context.Context, c client.Reader, operatorNamespace, version string, currentDPUServiceTemplateValues *DPUServiceTemplateValues) error {
+func applyOverridesFromConfigMap(ctx context.Context, c client.Reader, operatorNamespace, version string, currentDPUServiceTemplateValues *dpfdefaults.DPUServiceTemplateValues) error {
 	log := logf.FromContext(ctx)
 
 	var cm corev1.ConfigMap

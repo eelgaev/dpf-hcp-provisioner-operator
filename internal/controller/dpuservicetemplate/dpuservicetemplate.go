@@ -145,7 +145,7 @@ func (m *DPUServiceTemplateManager) DeleteTemplates(ctx context.Context, namespa
 
 // getDPUServiceTemplateValuesForCurrentDPF determines the running DPF major.minor version and
 // returns the matching template values with any user overrides applied.
-func (m *DPUServiceTemplateManager) getDPUServiceTemplateValuesForCurrentDPF(ctx context.Context) (*DPUServiceTemplateValues, error) {
+func (m *DPUServiceTemplateManager) getDPUServiceTemplateValuesForCurrentDPF(ctx context.Context) (*dpfdefaults.DPUServiceTemplateValues, error) {
 	dpfVersion, err := common.GetDPFVersion(ctx, m.client)
 	if err != nil {
 		return nil, fmt.Errorf("determining DPF version: %w", err)
@@ -157,7 +157,7 @@ func (m *DPUServiceTemplateManager) getDPUServiceTemplateValuesForCurrentDPF(ctx
 	return m.getDPUServiceTemplateValues(ctx, version)
 }
 
-func (m *DPUServiceTemplateManager) getDPUServiceTemplateValues(ctx context.Context, version string) (*DPUServiceTemplateValues, error) {
+func (m *DPUServiceTemplateManager) getDPUServiceTemplateValues(ctx context.Context, version string) (*dpfdefaults.DPUServiceTemplateValues, error) {
 	values, err := dpfdefaults.TemplateValues(ctx, version)
 	if err != nil {
 		return nil, err
@@ -345,7 +345,7 @@ func (m *DPUServiceTemplateManager) getClusterPullSecretKeychain(ctx context.Con
 	return common.KeychainFromPullSecret(ctx, m.client, clusterPullSecretName, clusterPullSecretNamespace)
 }
 
-func (m *DPUServiceTemplateManager) ensureOVNTemplate(ctx context.Context, namespace string, defaults *DPUServiceTemplateValues) error {
+func (m *DPUServiceTemplateManager) ensureOVNTemplate(ctx context.Context, namespace string, defaults *dpfdefaults.DPUServiceTemplateValues) error {
 	log := logf.FromContext(ctx)
 
 	managementWorkerOVNKDaemonSet, err := m.getWorkerOVNKDaemonSet(ctx)
@@ -469,7 +469,7 @@ func (m *DPUServiceTemplateManager) ensureOVNTemplate(ctx context.Context, names
 	return m.ensureTemplate(ctx, namespace, templateNameOVNK, templateNameOVNK, defaults.OVN.ChartRepoURL, defaults.OVN.ChartName, defaults.OVN.ChartVersion, values, nil, annotations, log)
 }
 
-func (m *DPUServiceTemplateManager) ensureDTSTemplate(ctx context.Context, namespace string, defaults *DPUServiceTemplateValues) error {
+func (m *DPUServiceTemplateManager) ensureDTSTemplate(ctx context.Context, namespace string, defaults *dpfdefaults.DPUServiceTemplateValues) error {
 	log := logf.FromContext(ctx)
 
 	values := map[string]any{
@@ -496,7 +496,7 @@ func (m *DPUServiceTemplateManager) ensureDTSTemplate(ctx context.Context, names
 	return m.ensureTemplate(ctx, namespace, templateNameDTS, templateNameDTS, defaults.DTS.ChartRepoURL, defaults.DTS.ChartName, defaults.DTS.ChartVersion, values, resourceReqs, nil, log)
 }
 
-func (m *DPUServiceTemplateManager) ensureHBNTemplate(ctx context.Context, namespace string, defaults *DPUServiceTemplateValues) error {
+func (m *DPUServiceTemplateManager) ensureHBNTemplate(ctx context.Context, namespace string, defaults *dpfdefaults.DPUServiceTemplateValues) error {
 	log := logf.FromContext(ctx)
 
 	values := map[string]any{
