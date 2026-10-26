@@ -27,17 +27,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/common"
+	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/dpfdefaults"
 )
 
-// The per-DPF-version values (DOCA version and DPUServiceTemplate chart/image
-// pins) live in internal/common next to the shared embedded table; aliased
-// here for readability.
+// Template value types are the JSON schema in internal/dpfdefaults. Aliased
+// here so the controller keeps its existing names.
 type (
-	OVNTemplateValues        = common.OVNTemplateValues
-	DTSTemplateValues        = common.DTSTemplateValues
-	HBNTemplateValues        = common.HBNTemplateValues
-	DPUServiceTemplateValues = common.DPUServiceTemplateValues
+	OVNTemplateValues        = dpfdefaults.OVNTemplateValues
+	DTSTemplateValues        = dpfdefaults.DTSTemplateValues
+	HBNTemplateValues        = dpfdefaults.HBNTemplateValues
+	DPUServiceTemplateValues = dpfdefaults.DPUServiceTemplateValues
 )
 
 const overridesConfigMapName = "dpuservicetemplate-overrides"

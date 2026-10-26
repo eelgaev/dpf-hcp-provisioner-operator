@@ -40,6 +40,7 @@ import (
 
 	dpuservicev1alpha1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/common"
+	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/dpfdefaults"
 )
 
 const (
@@ -157,11 +158,10 @@ func (m *DPUServiceTemplateManager) getDPUServiceTemplateValuesForCurrentDPF(ctx
 }
 
 func (m *DPUServiceTemplateManager) getDPUServiceTemplateValues(ctx context.Context, version string) (*DPUServiceTemplateValues, error) {
-	versionValues, err := common.DPFVersionValuesForVersion(ctx, version)
+	values, err := dpfdefaults.TemplateValues(ctx, version)
 	if err != nil {
 		return nil, err
 	}
-	values := &versionValues.DPUServiceTemplateValues
 
 	if err := applyOverridesFromConfigMap(ctx, m.apiReader, m.OperatorNamespace, version, values); err != nil {
 		return nil, fmt.Errorf("applying overrides from configmap: %w", err)

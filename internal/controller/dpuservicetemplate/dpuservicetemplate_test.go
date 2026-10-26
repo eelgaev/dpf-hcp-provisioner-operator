@@ -41,6 +41,7 @@ import (
 	provisioningv1alpha1 "github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/api/v1alpha1"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/common"
 	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/controller/dpuservicetemplate"
+	"github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/internal/dpfdefaults"
 )
 
 const testOperatorNamespace = "dpf-hcp-provisioner-system"
@@ -830,7 +831,7 @@ var _ = Describe("DPUServiceTemplate Manager", func() {
 
 	Describe("GetDefaultsForVersion", func() {
 		It("should return defaults for supported version 26.4", func() {
-			defaults, err := common.DPFVersionValuesForVersion(context.Background(), "26.4")
+			defaults, err := dpfdefaults.TemplateValues(context.Background(), "26.4")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(defaults.OVN.ChartVersion).To(Equal("v26.4.1-ocp-release-v4.22"))
 			Expect(defaults.DTS.ChartVersion).To(Equal("1.25.5"))
@@ -839,11 +840,11 @@ var _ = Describe("DPUServiceTemplate Manager", func() {
 		})
 
 		It("should return embedded default for unknown DPF minors", func() {
-			defaults264, err := common.DPFVersionValuesForVersion(context.Background(), "26.4")
+			defaults264, err := dpfdefaults.TemplateValues(context.Background(), "26.4")
 			Expect(err).NotTo(HaveOccurred())
-			defaults, err := common.DPFVersionValuesForVersion(context.Background(), "26.12")
+			defaults, err := dpfdefaults.TemplateValues(context.Background(), "26.12")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(defaults.DPUServiceTemplateValues).To(Equal(defaults264.DPUServiceTemplateValues))
+			Expect(*defaults).To(Equal(*defaults264))
 		})
 	})
 

@@ -38,14 +38,14 @@ DPUClusterRef.
 
 Chart versions and image repos are **not** user-configurable. These values are
 difficult for users to determine on their own and they move in lockstep with
-DPF releases, so they are maintained in a shared JSON file
-(`internal/common/dpfversions.json`) keyed by DPF **major.minor** version
+DPF releases, so they are maintained in one JSON file
+(`internal/dpfdefaults/dpfversions.json`) keyed by DPF **major.minor** version
 (e.g. `"26.4"`), plus a `"default"` row for versions without a dedicated entry.
-Each row also carries the `docaVersion` that the BlueField OCP layer image
-lookup uses to pick a matching image tag. At runtime, the controller reads
-`DPFOperatorConfig.status.version` from
-`dpfoperatorconfig/dpf-operator-system`, extracts the major.minor version, and looks
-up the corresponding defaults.
+Each row carries `docaVersion` (`dpfdefaults.DocaVersion`, for BlueField OCP
+layer lookup) and the template pins (`dpfdefaults.TemplateValues`). At runtime
+the controller reads `DPFOperatorConfig.status.version` from
+`dpfoperatorconfig/dpf-operator-system` and turns it into that major.minor key
+with `common.GetDPFVersion` and `common.DPFMajorMinorFromVersion`.
 
 ### Value overrides via ConfigMap
 
@@ -86,5 +86,6 @@ HostedCluster creation. The `DPUServiceTemplatesConfigured` condition gates the
 |---|---|
 | `controller.go` | Reconciler, cleanup, template lifecycle |
 | `dpuservicetemplate.go` | Manager, template creation, OVN image resolution |
-| `dpuservicetemplatevalues.go` | DPF version-to-defaults map |
+| `dpuservicetemplatevalues.go` | ConfigMap overrides on top of embedded defaults |
+| `internal/dpfdefaults` | Embedded DPF version table (`docaVersion` and template pins) |
 | `release_image.go` | Release payload image extraction |
